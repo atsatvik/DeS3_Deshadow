@@ -232,12 +232,14 @@ class DenoisingDiffusion(object):
                 self.ema_helper.update(self.model)
                 data_start = time.time()
 
-                if self.step % self.config.training.validation_freq == 0:
+                # if self.step % self.config.training.validation_freq == 0:
+                if epoch % 50 == 0 and epoch != 0:
                     self.model.eval()
                     self.sample_validation_patches(val_loader, self.step)
 
                 if (
-                    self.step % self.config.training.snapshot_freq == 0
+                    # self.step % self.config.training.snapshot_freq == 0
+                    (epoch % 50 == 0 and epoch != 0)
                     or self.step == 1
                 ):
                     utils.logging.save_checkpoint(
@@ -252,7 +254,7 @@ class DenoisingDiffusion(object):
                         },
                         filename=os.path.join(
                             self.exp_log_dir,
-                            f"epoch_{epoch + 1}_ddpm",
+                            f"epoch_{epoch + 1}_step_{self.step}ddpm",
                         ),
                         # filename=os.path.join(
                         #     self.config.data.data_dir,
@@ -310,8 +312,11 @@ class DenoisingDiffusion(object):
             self.args.image_folder,
             self.config.data.dataset + str(self.config.data.image_size),
         )
+        if not os.path.exists(image_folder):
+            os.makedirs(image_folder)
+
         with torch.no_grad():
-            for i, (x, y) in enumerate(val_loader):
+            for i, (x, img_id, label) in enumerate(val_loader):
                 x = x.flatten(start_dim=0, end_dim=1) if x.ndim == 5 else x
                 break
             n = x.size(0)
