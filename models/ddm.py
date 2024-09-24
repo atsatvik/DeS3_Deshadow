@@ -11,6 +11,7 @@ import utils
 from models.unet import ShadowDiffusionUNet
 from models.transformer2d import My_DiT_test
 from torch.utils.tensorboard import SummaryWriter
+import shutil
 
 
 def data_transform(X):
@@ -166,6 +167,9 @@ class DenoisingDiffusion(object):
 
         self.writer = SummaryWriter(log_dir=self.exp_log_dir)
         print(f"Saving log files to dir:{self.exp_log_dir}")
+
+        config_file_path = os.path.join("configs", self.args.config)
+        shutil.copy(config_file_path, os.path.join(self.exp_log_dir, self.args.config))
 
         self.keep_last_weights = self.args.num_last_weights
 
