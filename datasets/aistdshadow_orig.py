@@ -8,9 +8,6 @@ import torch.utils.data
 import PIL
 import re
 import random
-import cv2
-
-file_ext = ["png"]
 
 
 class AISTDShadow:
@@ -27,9 +24,8 @@ class AISTDShadow:
             n=self.config.training.patch_n,
             patch_size=self.config.data.image_size,
             transforms=self.transforms,
+            filelist=None,
             parse_patches=parse_patches,
-            folders=["train_A", "train_C"],
-            label="train",
         )
 
         val_dataset = AISTDShadowDataset(
@@ -37,9 +33,8 @@ class AISTDShadow:
             n=self.config.training.patch_n,
             patch_size=self.config.data.image_size,
             transforms=self.transforms,
+            filelist="/home1/yeying/DeS3_Deshadow/aistdtest.txt",
             parse_patches=parse_patches,
-            folders=["test_A", "test_C"],
-            label="test",
         )
 
         if not parse_patches:
@@ -66,43 +61,44 @@ class AISTDShadow:
 
 class AISTDShadowDataset(torch.utils.data.Dataset):
     def __init__(
-        self,
-        dir,
-        patch_size,
-        n,
-        transforms,
-        parse_patches=True,
-        folders=[],
-        label="",
+        self, dir, patch_size, n, transforms, filelist=None, parse_patches=True
     ):
-        self.counter = 0
         super().__init__()
-        print(f"Directory: {dir}")
+        print("-dir-", dir)
 
-        if not folders:
-            raise Exception("Incorrect or missing images and GT folders")
-        folders = [os.path.join(dir, label, f) for f in folders]
-        image_folder, GT_folder = folders[0], folders[1]
+        if filelist is None:
+            shadow_dir = dir
+            input_names, gt_names = [], []
 
-        img_names = [
-            f for f in os.listdir(image_folder) if f.split(".")[-1] in file_ext
-        ]
-        GT_names = [f for f in os.listdir(GT_folder) if f.split(".")[-1] in file_ext]
+            # train filelist
+            shadow_inputs = os.path.join(shadow_dir, "trainA")
+            images = [
+                f
+                for f in listdir(shadow_inputs)
+                if isfile(os.path.join(shadow_inputs, f))
+            ]
+            assert len(images) == 1330
+            input_names += [os.path.join(shadow_inputs, i) for i in images]
+            gt_names += [
+                os.path.join(os.path.join(shadow_dir, "trainB"), i) for i in images
+            ]
+            print(len(input_names))
 
-        if not img_names == GT_names:
-            raise Exception("images and GT have inconsistency")
+            x = list(enumerate(input_names))
+            random.shuffle(x)
+            indices, input_names = zip(*x)
+            gt_names = [gt_names[idx] for idx in indices]
+            self.dir = None
+        else:
+            self.dir = dir
+            train_list = os.path.join(dir, filelist)
+            with open(train_list) as f:
+                contents = f.readlines()
+                input_names = [i.strip() for i in contents]
+                gt_names = [i.strip().replace("testA", "testB") for i in input_names]
 
-        image_paths = [os.path.join(image_folder, f) for f in img_names]
-        GT_paths = [os.path.join(GT_folder, f) for f in GT_names]
-
-        x = list(enumerate(image_paths))
-        random.shuffle(x)
-        indices, image_paths = zip(*x)
-        GT_paths = [GT_paths[idx] for idx in indices]
-        self.dir = None
-
-        self.image_paths = image_paths
-        self.GT_paths = GT_paths
+        self.input_names = input_names
+        self.gt_names = gt_names
         self.patch_size = patch_size
         self.transforms = transforms
         self.n = n
@@ -128,8 +124,8 @@ class AISTDShadowDataset(torch.utils.data.Dataset):
         return tuple(crops)
 
     def get_images(self, index):
-        input_name = self.image_paths[index]
-        gt_name = self.GT_paths[index]
+        input_name = self.input_names[index]
+        gt_name = self.gt_names[index]
         # print('input_name,gt_name',input_name,gt_name)
         datasetname = re.split("/", input_name)[-3]
         # print('datasetname',datasetname)
@@ -149,36 +145,13 @@ class AISTDShadowDataset(torch.utils.data.Dataset):
             )
             input_img = self.n_random_crops(input_img, i, j, h, w)
             gt_img = self.n_random_crops(gt_img, i, j, h, w)
-
-            label_ip = []
-            label_gt = []
-            for i, (img_ip, img_gt) in enumerate(zip(input_img, gt_img)):
-                label_gt.append(0)
-
-                ###DEBUG########################################
-                # imgname_ip = f"{self.counter}_{i}_ip.png"
-                # imgname_gt = f"{self.counter}_{i}_gt.png"
-                # self.save_debug_img(img_ip, imgname_ip)
-                # self.save_debug_img(img_gt, imgname_gt)
-                ###DEBUG########################################
-
-                if self.calculate_mse(img_ip, img_gt) < 20:
-                    label_ip.append(0)
-                else:
-                    label_ip.append(1)
-            # self.counter += 1
-            # exit()
             outputs = [
                 torch.cat(
-                    [self.transforms(input_img[i]), self.transforms(gt_img[i])],
-                    dim=0,
+                    [self.transforms(input_img[i]), self.transforms(gt_img[i])], dim=0
                 )
                 for i in range(self.n)
             ]
-            label = label_ip + label_gt
-            label = torch.tensor(label)
-            # print("labellllll, ", label)
-            return torch.stack(outputs, dim=0), img_id, label
+            return torch.stack(outputs, dim=0), img_id
         else:
             wd_new = 256
             ht_new = 256
@@ -196,14 +169,4 @@ class AISTDShadowDataset(torch.utils.data.Dataset):
         return res
 
     def __len__(self):
-        return len(self.image_paths)
-
-    def calculate_mse(self, image1, image2):
-        img1 = np.array(image1)
-        img2 = np.array(image2)
-        return np.mean((img1 - img2) ** 2)
-
-    def save_debug_img(self, img, imgname):
-        img.save(
-            f"/home/satviktyagi/Desktop/desk/project/github/DeS3_Deshadow/debug_imgs/{imgname}"
-        )
+        return len(self.input_names)
