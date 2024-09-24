@@ -2,7 +2,7 @@ import os
 import time
 import glob
 import numpy as np
-import tqdm
+from tqdm import tqdm
 import torch
 import torch.nn as nn
 import torch.utils.data as data
@@ -10,6 +10,7 @@ import torch.backends.cudnn as cudnn
 import utils
 from models.unet import ShadowDiffusionUNet
 from models.transformer2d import My_DiT_test
+from torch.utils.tensorboard import SummaryWriter
 
 
 def data_transform(X):
@@ -144,6 +145,30 @@ class DenoisingDiffusion(object):
         betas = self.betas = torch.from_numpy(betas).float().to(self.device)
         self.num_timesteps = betas.shape[0]
 
+        if not os.path.exists(self.args.log_dir):
+            os.makedirs(self.args.log_dir)
+
+        self.exp_dir = os.path.join(self.args.log_dir, self.args.exp_name)
+        if not os.path.exists(self.exp_dir):
+            os.makedirs(self.exp_dir)
+
+        exp_dir_folder_ls = os.listdir(self.exp_dir)
+        if not exp_dir_folder_ls:
+            self.exp_log_dir = os.path.join(self.exp_dir, f"{0}")
+            os.makedirs(self.exp_log_dir)
+        else:
+            exp_dir_folder_ls = [int(elem) for elem in exp_dir_folder_ls]
+            exp_dir_folder_ls.sort()
+            self.exp_log_dir = os.path.join(
+                self.exp_dir, f"{int(exp_dir_folder_ls[-1]) + 1}"
+            )
+            os.makedirs(self.exp_log_dir)
+
+        self.writer = SummaryWriter(log_dir=self.exp_log_dir)
+        print(f"Saving log files to dir:{self.exp_log_dir}")
+
+        self.keep_last_weights = self.args.num_last_weights
+
     def load_ddm_ckpt(self, load_path, ema=False):
         checkpoint = utils.logging.load_checkpoint(load_path, None)
         self.start_epoch = checkpoint["epoch"]
@@ -170,7 +195,9 @@ class DenoisingDiffusion(object):
             print("epoch: ", epoch)
             data_start = time.time()
             data_time = 0
-            for i, (x, img_id, label) in enumerate(train_loader):
+            for i, (x, img_id, label) in tqdm(
+                enumerate(train_loader), desc=f"Training Epoch {epoch}: "
+            ):
                 x = x.flatten(start_dim=0, end_dim=1) if x.ndim == 5 else x
                 n = x.size(0)
                 data_time += time.time() - data_start
@@ -192,6 +219,8 @@ class DenoisingDiffusion(object):
                     print(
                         f"step: {self.step}, loss: {loss.item()}, data time: {data_time / (i+1)}"
                     )
+                global_step = epoch * len(train_loader) + i
+                self.writer.add_scalar("Loss/train", loss.item(), global_step)
 
                 self.optimizer.zero_grad()
                 loss.backward()
@@ -218,11 +247,34 @@ class DenoisingDiffusion(object):
                             "config": self.config,
                         },
                         filename=os.path.join(
-                            self.config.data.data_dir,
-                            "ckpts",
-                            self.config.data.dataset + "_ddpm",
+                            self.exp_log_dir,
+                            f"epoch_{epoch + 1}_ddpm",
                         ),
+                        # filename=os.path.join(
+                        #     self.config.data.data_dir,
+                        #     "ckpts",
+                        #     self.config.data.dataset + "_ddpm",
+                        # ),
                     )
+                    if self.keep_last_weights:
+                        self.remove_extra_weight_files()
+
+        self.writer.close()
+
+    def remove_extra_weight_files(self):
+        weight_files = os.listdir(self.exp_log_dir)
+        weight_files = [elem for elem in weight_files if ".pth.tar" in elem]
+        if len(weight_files) <= self.keep_last_weights:
+            return
+
+        min_epoch_in_filename = float("inf")
+        min_epoch_filename = ""
+        for filename in weight_files:
+            if int(filename.split("_")[1]) < min_epoch_in_filename:
+                min_epoch_in_filename = int(filename.split("_")[1])
+                min_epoch_filename = filename
+
+        os.remove(os.path.join(self.exp_log_dir, min_epoch_filename))
 
     def sample_image(self, x_cond, x, last=True, patch_locs=None, patch_size=None):
         skip = (

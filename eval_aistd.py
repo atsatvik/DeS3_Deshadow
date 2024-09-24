@@ -14,22 +14,48 @@ from models import DenoisingDiffusion, DiffusiveRestoration
 
 
 def parse_args_and_config():
-    parser = argparse.ArgumentParser(description='Restoring AISTD with DeS3')
-    parser.add_argument("--config", type=str, default='AISTDshadow.yml',
-                        help="Path to the config file")
-    parser.add_argument('--resume', default='/home1/yeying/DeS3_Deshadow/ckpts/AISTDShadow_ddpm.pth.tar', type=str,
-                        help='Path for the diffusion model checkpoint to load for evaluation')
-    parser.add_argument("--grid_r", type=int, default=16,
-                        help="Grid cell width r that defines the overlap between patches")
-    parser.add_argument("--sampling_timesteps", type=int, default=25,
-                        help="Number of implicit sampling steps")
-    parser.add_argument("--test_set", type=str, default='AISTD',
-                        help="restoration test set options: ['SRD', 'AISTD', 'LRSS', 'UIUC']")
-    parser.add_argument("--image_folder", default='results/', type=str,
-                        help="Location to save restored images")
-    parser.add_argument('--seed', default=61, type=int, metavar='N',
-                        help='Seed for initializing training (default: 61)')
-    parser.add_argument('--sid', type=str, default=None)
+    parser = argparse.ArgumentParser(description="Restoring AISTD with DeS3")
+    parser.add_argument(
+        "--config", type=str, default="AISTDshadow.yml", help="Path to the config file"
+    )
+    parser.add_argument(
+        "--resume",
+        default="/home1/yeying/DeS3_Deshadow/ckpts/AISTDShadow_ddpm.pth.tar",
+        type=str,
+        help="Path for the diffusion model checkpoint to load for evaluation",
+    )
+    parser.add_argument(
+        "--grid_r",
+        type=int,
+        default=16,
+        help="Grid cell width r that defines the overlap between patches",
+    )
+    parser.add_argument(
+        "--sampling_timesteps",
+        type=int,
+        default=25,
+        help="Number of implicit sampling steps",
+    )
+    parser.add_argument(
+        "--test_set",
+        type=str,
+        default="AISTD",
+        help="restoration test set options: ['SRD', 'AISTD', 'LRSS', 'UIUC']",
+    )
+    parser.add_argument(
+        "--image_folder",
+        default="results/",
+        type=str,
+        help="Location to save restored images",
+    )
+    parser.add_argument(
+        "--seed",
+        default=61,
+        type=int,
+        metavar="N",
+        help="Seed for initializing training (default: 61)",
+    )
+    parser.add_argument("--sid", type=str, default=None)
     args = parser.parse_args()
     print(args)
 
@@ -60,12 +86,14 @@ def main():
     config.device = device
 
     if torch.cuda.is_available():
-        print('Note: Currently supports evaluations (restoration) when run only on a single GPU!')
+        print(
+            "Note: Currently supports evaluations (restoration) when run only on a single GPU!"
+        )
 
     # set random seed
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
-    print('-args.seed-',args.seed)
+    print("-args.seed-", args.seed)
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(args.seed)
     torch.backends.cudnn.benchmark = True
@@ -79,8 +107,8 @@ def main():
     print("=> creating denoising-diffusion model with wrapper...")
     diffusion = DenoisingDiffusion(args, config)
     model = DiffusiveRestoration(diffusion, args, config)
-    model.restore(val_loader, validation=args.test_set, r=args.grid_r, sid = args.sid)
+    model.restore(val_loader, validation=args.test_set, r=args.grid_r, sid=args.sid)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

@@ -13,20 +13,62 @@ import datasets
 import utils
 from models import DenoisingDiffusion
 
+
 def parse_args_and_config():
-    parser = argparse.ArgumentParser(description='Training DeS3')
-    parser.add_argument("--config", type=str, default='AISTDshadow.yml',
-                        help="Path to the config file")
-    parser.add_argument('--resume', default='/home1/yeying/DeS3_Deshadow/ckpts/AISTDShadow_ddpm.pth.tar', type=str,
-                        help='Path for checkpoint to load and resume')
-    parser.add_argument("--test_set", type=str, default='AISTD',
-                        help="restoration test set options: ['SRD', 'AISTD', 'LRSS', 'UIUC']")
-    parser.add_argument("--sampling_timesteps", type=int, default=25,
-                        help="Number of implicit sampling steps for validation image patches")
-    parser.add_argument("--image_folder", default='results/images/', type=str,
-                        help="Location to save restored validation image patches")
-    parser.add_argument('--seed', default=61, type=int, metavar='N',
-                        help='Seed for initializing training (default: 61)')
+    parser = argparse.ArgumentParser(description="Training DeS3")
+    parser.add_argument(
+        "--exp_name",
+        default="train_aistd",
+        type=str,
+        help="experiment name",
+    )
+    parser.add_argument(
+        "--log_dir",
+        default="/home/satviktyagi/Desktop/desk/project/github/des3_mine/exp",
+        type=str,
+        help="log directory",
+    )
+    parser.add_argument(
+        "--num_last_weights",
+        default=3,
+        type=int,
+        help="number of last weights to keep ex => default 3 means we're keeping last 3 weights in dir",
+    )
+    parser.add_argument(
+        "--config", type=str, default="AISTDshadow.yml", help="Path to the config file"
+    )
+    parser.add_argument(
+        "--resume",
+        default="/home1/yeying/DeS3_Deshadow/ckpts/AISTDShadow_ddpm.pth.tar",
+        type=str,
+        help="Path for checkpoint to load and resume",
+    )
+    parser.add_argument(
+        "--test_set",
+        type=str,
+        default="AISTD",
+        help="restoration test set options: ['SRD', 'AISTD', 'LRSS', 'UIUC']",
+    )
+    parser.add_argument(
+        "--sampling_timesteps",
+        type=int,
+        default=25,
+        help="Number of implicit sampling steps for validation image patches",
+    )
+    parser.add_argument(
+        "--image_folder",
+        default="results/images/",
+        type=str,
+        help="Location to save restored validation image patches",
+    )
+    parser.add_argument(
+        "--seed",
+        default=61,
+        type=int,
+        metavar="N",
+        help="Seed for initializing training (default: 61)",
+    )
+
     args = parser.parse_args()
 
     with open(os.path.join("configs", args.config), "r") as f:

@@ -12,22 +12,49 @@ import datasets
 import utils
 from models import DenoisingDiffusion, DiffusiveRestoration
 
+
 def parse_args_and_config():
-    parser = argparse.ArgumentParser(description='DeS3')
-    parser.add_argument("--config", type=str, required=True,
-                        help="Path to the config file")
-    parser.add_argument('--resume', default='', type=str,
-                        help='Path for the DeS3 model checkpoint to load for evaluation')
-    parser.add_argument("--grid_r", type=int, default=16,
-                        help="Grid cell width r that defines the overlap between patches")
-    parser.add_argument("--sampling_timesteps", type=int, default=25,
-                        help="Number of implicit sampling steps")
-    parser.add_argument("--test_set", type=str, default='SRD',
-                        help="restoration test set options: ['SRD, AISTD, LRSS, UIUC']")
-    parser.add_argument("--image_folder", default='results/real_images/', type=str,
-                        help="Location to save restored images")
-    parser.add_argument('--seed', default=61, type=int, metavar='N',
-                        help='Seed for initializing training (default: 61)')
+    parser = argparse.ArgumentParser(description="DeS3")
+    parser.add_argument(
+        "--config", type=str, required=True, help="Path to the config file"
+    )
+    parser.add_argument(
+        "--resume",
+        default="",
+        type=str,
+        help="Path for the DeS3 model checkpoint to load for evaluation",
+    )
+    parser.add_argument(
+        "--grid_r",
+        type=int,
+        default=16,
+        help="Grid cell width r that defines the overlap between patches",
+    )
+    parser.add_argument(
+        "--sampling_timesteps",
+        type=int,
+        default=25,
+        help="Number of implicit sampling steps",
+    )
+    parser.add_argument(
+        "--test_set",
+        type=str,
+        default="SRD",
+        help="restoration test set options: ['SRD, AISTD, LRSS, UIUC']",
+    )
+    parser.add_argument(
+        "--image_folder",
+        default="results/real_images/",
+        type=str,
+        help="Location to save restored images",
+    )
+    parser.add_argument(
+        "--seed",
+        default=61,
+        type=int,
+        metavar="N",
+        help="Seed for initializing training (default: 61)",
+    )
     args = parser.parse_args()
 
     with open(os.path.join("configs", args.config), "r") as f:
@@ -35,6 +62,7 @@ def parse_args_and_config():
     new_config = dict2namespace(config)
 
     return args, new_config
+
 
 def dict2namespace(config):
     namespace = argparse.Namespace()
@@ -54,7 +82,7 @@ def main():
     config.device = device
 
     if torch.cuda.is_available():
-        print('Note: GPU!')
+        print("Note: GPU!")
 
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
@@ -70,5 +98,5 @@ def main():
     model.restore(val_loader, validation=args.test_set, r=args.grid_r)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

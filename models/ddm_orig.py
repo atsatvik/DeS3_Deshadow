@@ -2,16 +2,15 @@ import os
 import time
 import glob
 import numpy as np
-from tqdm import tqdm
+import tqdm
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 import torch.utils.data as data
 import torch.backends.cudnn as cudnn
 import utils
 from models.unet import ShadowDiffusionUNet
 from models.transformer2d import My_DiT_test
-import cv2
+from torch.utils.tensorboard import SummaryWriter
 
 
 def data_transform(X):
@@ -104,63 +103,10 @@ def get_beta_schedule(beta_schedule, *, beta_start, beta_end, num_diffusion_time
     return betas
 
 
-def noise_estimation_loss(model, x0, t, e, b, img_id, label):
+def noise_estimation_loss(model, x0, t, e, b):
     a = (1 - b).cumprod(dim=0).index_select(0, t).view(-1, 1, 1, 1)
-    shadow_imgs = x0[:, :3, :, :]
-    shadow_free_imgs = x0[:, 3:, :, :]
-    noise_shadow_free_imgs = shadow_free_imgs * a.sqrt() + e * (1.0 - a).sqrt()
-
-    # # Here, we're passing the class labels based on input type
-    # y_shadow = torch.ones(
-    #     shadow_imgs.shape[0], dtype=torch.long, device=shadow_imgs.device
-    # )  # Labels for shadow images
-    # y_shadow_free = torch.zeros(
-    #     noise_shadow_free_imgs.shape[0],
-    #     dtype=torch.long,
-    #     device=noise_shadow_free_imgs.device,
-    # )  # Labels for shadow-free images
-
-    # ######### debug #########
-    # img1 = x0[0, :3, :, :].cpu().numpy() * 255  # .astype(np.uint8)) * 255
-    # img1 = cv2.normalize(
-    #     img1, None, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX
-    # ).astype(np.uint8)
-    # img1 = np.transpose(img1, (1, 2, 0))
-    # cv2.imshow("shadow_img", img1)
-
-    # img2 = ((noise_shadow_free_imgs[0].cpu().numpy())) * 255
-    # img2 = cv2.normalize(
-    #     img2, None, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX
-    # ).astype(np.uint8)
-    # img2 = np.transpose(img2, (1, 2, 0))
-    # cv2.imshow("noise_shadow_free_img", img2)
-
-    # img3 = x0[0, 3:, :, :].cpu().numpy() * 255  # .astype(np.uint8)) * 255
-    # img3 = cv2.normalize(
-    #     img3, None, alpha=0, beta=255, norm_type=cv2.NORM_MINMAX
-    # ).astype(np.uint8)
-    # img3 = np.transpose(img3, (1, 2, 0))
-    # cv2.imshow("shadow_free_img", img3)
-
-    # cv2.waitKey(0)
-    # cv2.destroyAllWindows()
-    # ######### debug #########
-    output, class_pred, att = model(
-        torch.cat([shadow_imgs, noise_shadow_free_imgs], dim=1),
-        t.float(),
-        label,
-        shadow_free_imgs,
-        img_id,
-    )  # you get the output as (4,3,64,64)
-
-    # cam_loss = F.binary_cross_entropy_with_logits(classifier_output, labels)
-
-    # output = model(torch.cat([x0[:, :3, :, :], x], dim=1), t.float(), y)
-    # output_img = (output[0].cpu().detach().numpy()).astype(np.uint8) * 255
-    # output_img = np.transpose(output_img, (1, 2, 0))
-    # cv2.imshow("output_img", output_img)
-    # cv2.waitKey(0)
-    # cv2.destroyAllWindows()
+    x = x0[:, 3:, :, :] * a.sqrt() + e * (1.0 - a).sqrt()
+    output = model(torch.cat([x0[:, :3, :, :], x], dim=1), t.float())
     return (e - output).square().sum(dim=(1, 2, 3)).mean(dim=0)
 
 
@@ -172,9 +118,11 @@ class DenoisingDiffusion(object):
         self.device = config.device
 
         self.model = ShadowDiffusionUNet(config)
-        # if self.args.test_set == "AISTD":
-        #     print("Model changed to DiT from ShadowDiffusionUNet")
-        #     self.model = My_DiT_test(input_size=config.data.image_size)
+        if self.args.test_set == "AISTD":
+            print("Using Diffusion model with Transformer Backbone")
+            self.model = My_DiT_test(input_size=config.data.image_size)
+        else:
+            print("Using Diffusion model with U-net Backbone")
 
         self.model.to(self.device)
         self.model = torch.nn.DataParallel(self.model)
@@ -223,9 +171,7 @@ class DenoisingDiffusion(object):
             print("epoch: ", epoch)
             data_start = time.time()
             data_time = 0
-            for i, (x, img_id, label) in tqdm(
-                enumerate(train_loader), desc=f"Training Epoch {epoch}: "
-            ):
+            for i, (x, img_id, label) in enumerate(train_loader):
                 x = x.flatten(start_dim=0, end_dim=1) if x.ndim == 5 else x
                 n = x.size(0)
                 data_time += time.time() - data_start
@@ -241,7 +187,7 @@ class DenoisingDiffusion(object):
                     low=0, high=self.num_timesteps, size=(n // 2 + 1,)
                 ).to(self.device)
                 t = torch.cat([t, self.num_timesteps - t - 1], dim=0)[:n]
-                loss = noise_estimation_loss(self.model, x, t, e, b, img_id, label)
+                loss = noise_estimation_loss(self.model, x, t, e, b)
 
                 if self.step % 10 == 0:
                     print(
