@@ -3,7 +3,7 @@ data:
     image_size: 64
     channels: 3
     num_workers: 8
-    data_dir: "/home1/yeying/WeatherDiffusion_shadow/data/AISTD/"
+    data_dir: "/home/satviktyagi/Desktop/desk/project/github/des3_dataset/ISTD_des3"
     conditional: True
 
 model:
@@ -26,7 +26,7 @@ diffusion:
 
 training:
     patch_n: 4
-    batch_size: 16
+    batch_size: 1
     n_epochs: 37042
     n_iters: 2000000
     snapshot_freq: 10000
