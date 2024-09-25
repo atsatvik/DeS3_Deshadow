@@ -35,6 +35,12 @@ def parse_args_and_config():
         help="number of last weights to keep ex => default 3 means we're keeping last 3 weights in dir",
     )
     parser.add_argument(
+        "--save_after_epoch",
+        default=50,
+        type=int,
+        help="Save Checkpoint after N Epochs",
+    )
+    parser.add_argument(
         "--config", type=str, default="AISTDshadow.yml", help="Path to the config file"
     )
     parser.add_argument(

@@ -44,7 +44,7 @@ def parse_args_and_config():
     )
     parser.add_argument(
         "--image_folder",
-        default="results/",
+        default="test_results/",
         type=str,
         help="Location to save restored images",
     )
@@ -54,6 +54,30 @@ def parse_args_and_config():
         type=int,
         metavar="N",
         help="Seed for initializing training (default: 61)",
+    )
+    parser.add_argument(
+        "--log_dir",
+        default="/home/satviktyagi/Desktop/desk/project/github/des3_mine/exp",
+        type=str,
+        help="log directory",
+    )
+    parser.add_argument(
+        "--exp_name",
+        default="eval_aistd",
+        type=str,
+        help="experiment name",
+    )
+    parser.add_argument(
+        "--num_last_weights",
+        default=3,
+        type=int,
+        help="number of last weights to keep ex => default 3 means we're keeping last 3 weights in dir",
+    )
+    parser.add_argument(
+        "--save_after_epoch",
+        default=10,
+        type=int,
+        help="Save Checkpoint after N Epochs",
     )
     parser.add_argument("--sid", type=str, default=None)
     args = parser.parse_args()

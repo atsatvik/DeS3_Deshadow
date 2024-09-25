@@ -172,6 +172,7 @@ class DenoisingDiffusion(object):
         shutil.copy(config_file_path, os.path.join(self.exp_log_dir, self.args.config))
 
         self.keep_last_weights = self.args.num_last_weights
+        self.save_after_epoch = self.args.save_after_epoch
 
     def load_ddm_ckpt(self, load_path, ema=False):
         checkpoint = utils.logging.load_checkpoint(load_path, None)
@@ -232,38 +233,41 @@ class DenoisingDiffusion(object):
                 self.ema_helper.update(self.model)
                 data_start = time.time()
 
-                # if self.step % self.config.training.validation_freq == 0:
-                if epoch % 50 == 0 and epoch != 0:
-                    self.model.eval()
-                    self.sample_validation_patches(val_loader, self.step)
+            # if self.step % self.config.training.validation_freq == 0:
+            if epoch % self.save_after_epoch == 0 and epoch != 0:
+                self.model.eval()
+                self.sample_validation_patches(val_loader, self.step)
 
-                if (
-                    # self.step % self.config.training.snapshot_freq == 0
-                    (epoch % 50 == 0 and epoch != 0)
-                    or self.step == 1
-                ):
-                    utils.logging.save_checkpoint(
-                        {
-                            "epoch": epoch + 1,
-                            "step": self.step,
-                            "state_dict": self.model.state_dict(),
-                            "optimizer": self.optimizer.state_dict(),
-                            "ema_helper": self.ema_helper.state_dict(),
-                            "params": self.args,
-                            "config": self.config,
-                        },
-                        filename=os.path.join(
-                            self.exp_log_dir,
-                            f"epoch_{epoch + 1}_step_{self.step}ddpm",
-                        ),
-                        # filename=os.path.join(
-                        #     self.config.data.data_dir,
-                        #     "ckpts",
-                        #     self.config.data.dataset + "_ddpm",
-                        # ),
-                    )
-                    if self.keep_last_weights:
-                        self.remove_extra_weight_files()
+            if (
+                # self.step % self.config.training.snapshot_freq == 0
+                (epoch % self.save_after_epoch == 0 and epoch != 0)
+                or self.step == 1
+            ):
+                save_path = os.path.join(
+                    self.exp_log_dir,
+                    f"epoch_{epoch + 1}_ddpm",
+                )
+                utils.logging.save_checkpoint(
+                    {
+                        "epoch": epoch + 1,
+                        "step": self.step,
+                        "state_dict": self.model.state_dict(),
+                        "optimizer": self.optimizer.state_dict(),
+                        "ema_helper": self.ema_helper.state_dict(),
+                        "params": self.args,
+                        "config": self.config,
+                    },
+                    filename=save_path,
+                    # filename=os.path.join(
+                    #     self.config.data.data_dir,
+                    #     "ckpts",
+                    #     self.config.data.dataset + "_ddpm",
+                    # ),
+                )
+                if self.keep_last_weights:
+                    self.remove_extra_weight_files()
+
+                print(f"Saving checkpoint at {save_path}")
 
         self.writer.close()
 
