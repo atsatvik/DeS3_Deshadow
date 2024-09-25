@@ -129,7 +129,7 @@ def main():
 
     # create model
     print("=> creating denoising-diffusion model with wrapper...")
-    diffusion = DenoisingDiffusion(args, config)
+    diffusion = DenoisingDiffusion(args, config, run="test")
     model = DiffusiveRestoration(diffusion, args, config)
     model.restore(val_loader, validation=args.test_set, r=args.grid_r, sid=args.sid)
 

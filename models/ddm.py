@@ -112,7 +112,7 @@ def noise_estimation_loss(model, x0, t, e, b):
 
 
 class DenoisingDiffusion(object):
-    def __init__(self, args, config):
+    def __init__(self, args, config, run=""):
         super().__init__()
         self.args = args
         self.config = config
@@ -145,6 +145,10 @@ class DenoisingDiffusion(object):
 
         betas = self.betas = torch.from_numpy(betas).float().to(self.device)
         self.num_timesteps = betas.shape[0]
+
+        self.run = run
+        if "test" in self.run:
+            return
 
         if not os.path.exists(self.args.log_dir):
             os.makedirs(self.args.log_dir)
@@ -237,6 +241,9 @@ class DenoisingDiffusion(object):
             if epoch % self.save_after_epoch == 0 and epoch != 0:
                 self.model.eval()
                 self.sample_validation_patches(val_loader, self.step)
+
+            if "test" in self.run:
+                continue
 
             if (
                 # self.step % self.config.training.snapshot_freq == 0
