@@ -74,7 +74,12 @@ def parse_args_and_config():
         metavar="N",
         help="Seed for initializing training (default: 61)",
     )
-
+    parser.add_argument(
+        "--input_type",
+        default=None,
+        type=str,
+        help="Which input to use among -> sf (shadow free img), sf/s (shadow free img / shadow img), sf-s (shadow free - shadow)",
+    )
     args = parser.parse_args()
 
     with open(os.path.join("configs", args.config), "r") as f:
@@ -111,7 +116,7 @@ def main():
 
     # data loading
     print("=> using dataset '{}'".format(config.data.dataset))
-    DATASET = datasets.__dict__[config.data.dataset](config)
+    DATASET = datasets.__dict__[config.data.dataset](args, config)
 
     # create model
     print("=> creating denoising-diffusion model...")

@@ -106,8 +106,10 @@ def get_beta_schedule(beta_schedule, *, beta_start, beta_end, num_diffusion_time
 
 def noise_estimation_loss(model, x0, t, e, b):
     a = (1 - b).cumprod(dim=0).index_select(0, t).view(-1, 1, 1, 1)
-    x = x0[:, 3:, :, :] * a.sqrt() + e * (1.0 - a).sqrt()
-    output = model(torch.cat([x0[:, :3, :, :], x], dim=1), t.float())
+    x = x0[:, 3:, :, :] * a.sqrt() + e * (1.0 - a).sqrt()  # adding noise to the GT
+    output = model(
+        torch.cat([x0[:, :3, :, :], x], dim=1), t.float()
+    )  # concatenating input img (shadow) to GT
     return (e - output).square().sum(dim=(1, 2, 3)).mean(dim=0)
 
 
@@ -117,6 +119,9 @@ class DenoisingDiffusion(object):
         self.args = args
         self.config = config
         self.device = config.device
+
+        if self.args.input_type is not None:
+            print(f"Using Input Image type {self.args.input_type}")
 
         self.model = ShadowDiffusionUNet(config)
         if self.args.test_set == "AISTD":

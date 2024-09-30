@@ -14,8 +14,9 @@ file_ext = ["png", "jpg"]
 
 
 class AISTDShadow:
-    def __init__(self, config):
+    def __init__(self, args, config):
         self.config = config
+        self.args = args
         self.transforms = torchvision.transforms.Compose(
             [torchvision.transforms.ToTensor()]
         )
@@ -30,6 +31,7 @@ class AISTDShadow:
             parse_patches=parse_patches,
             folders=["train_A", "train_C"],
             label="train",
+            input_type=self.args.input_type,
         )
 
         val_dataset = AISTDShadowDataset(
@@ -40,6 +42,7 @@ class AISTDShadow:
             parse_patches=parse_patches,
             folders=["test_A", "test_C"],
             label="test",
+            input_type=self.args.input_type,
         )
 
         if not parse_patches:
@@ -74,8 +77,14 @@ class AISTDShadowDataset(torch.utils.data.Dataset):
         parse_patches=True,
         folders=[],
         label="",
+        input_type=None,
     ):
+        if input_type is not None and input_type not in ["sf/s", "sf-s", "sf"]:
+            raise Exception("Incorrect input_type choose from: <sf/s>, <sf-s>, <sf>")
+
         self.counter = 0
+        self.input_type = input_type
+        self.epsilon = 1e-8
         super().__init__()
         print(f"Directory: {dir}")
 
@@ -130,6 +139,7 @@ class AISTDShadowDataset(torch.utils.data.Dataset):
     def get_images(self, index):
         input_name = self.image_paths[index]
         gt_name = self.GT_paths[index]
+        labels = []
         # print('input_name,gt_name',input_name,gt_name)
         datasetname = re.split("/", input_name)[-3]
         # print('datasetname',datasetname)
@@ -150,22 +160,12 @@ class AISTDShadowDataset(torch.utils.data.Dataset):
             input_img = self.n_random_crops(input_img, i, j, h, w)
             gt_img = self.n_random_crops(gt_img, i, j, h, w)
 
-            label_ip = []
-            label_gt = []
-            for i, (img_ip, img_gt) in enumerate(zip(input_img, gt_img)):
-                label_gt.append(0)
+            if self.input_type is not None and self.input_type != "sf":
+                gt_img = self.prepare_GT(input_img, gt_img, self.input_type)
 
-                ###DEBUG########################################
-                # imgname_ip = f"{self.counter}_{i}_ip.png"
-                # imgname_gt = f"{self.counter}_{i}_gt.png"
-                # self.save_debug_img(img_ip, imgname_ip)
-                # self.save_debug_img(img_gt, imgname_gt)
-                ###DEBUG########################################
+            if self.input_type is None or self.input_type == "sf":
+                labels = self.prepare_labels(input_img, gt_img)
 
-                if self.calculate_mse(img_ip, img_gt) < 20:
-                    label_ip.append(0)
-                else:
-                    label_ip.append(1)
             # self.counter += 1
             # exit()
             outputs = [
@@ -175,10 +175,8 @@ class AISTDShadowDataset(torch.utils.data.Dataset):
                 )
                 for i in range(self.n)
             ]
-            label = label_ip + label_gt
-            label = torch.tensor(label)
-            # print("labellllll, ", label)
-            return torch.stack(outputs, dim=0), img_id, label
+            # print("labels, ", labels)
+            return torch.stack(outputs, dim=0), img_id, labels
         else:
             wd_new = 256
             ht_new = 256
@@ -191,13 +189,6 @@ class AISTDShadowDataset(torch.utils.data.Dataset):
                 img_id,
             )
 
-    def __getitem__(self, index):
-        res = self.get_images(index)
-        return res
-
-    def __len__(self):
-        return len(self.image_paths)
-
     def calculate_mse(self, image1, image2):
         img1 = np.array(image1)
         img2 = np.array(image2)
@@ -207,3 +198,51 @@ class AISTDShadowDataset(torch.utils.data.Dataset):
         img.save(
             f"/home/satviktyagi/Desktop/desk/project/github/DeS3_Deshadow/debug_imgs/{imgname}"
         )
+
+    def show_img(self, img, name="img", destroy=False):
+        cv2.imshow(name, img)
+        cv2.waitKey(0)
+        if destroy:
+            cv2.destroyAllWindows()
+
+    def prepare_labels(self, input_img, gt_img):
+        labels_ip = []
+        labels_gt = []
+        for i, (img_ip, img_gt) in enumerate(zip(input_img, gt_img)):
+            labels_gt.append(0)
+            ###DEBUG########################################
+            # imgname_ip = f"{self.counter}_{i}_ip.png"
+            # imgname_gt = f"{self.counter}_{i}_gt.png"
+            # self.save_debug_img(img_ip, imgname_ip)
+            # self.save_debug_img(img_gt, imgname_gt)
+            ###DEBUG########################################
+            if (
+                self.calculate_mse(img_ip, img_gt) < 20
+            ):  # DEAL WITH THIS MAGIC NUMBER IF YOU USE LABEL EMBEDDING
+                labels_ip.append(0)
+            else:
+                labels_ip.append(1)
+        return torch.tensor(label_ip + label_gt)
+
+    def prepare_GT(self, input_img, gt_img, input_type):
+        gt_img = list(gt_img)
+        for i, (img_ip, img_gt) in enumerate(zip(input_img, gt_img)):
+            img_ip = np.array(img_ip).astype(np.float32)
+            img_gt = np.array(img_gt).astype(np.float32)
+            if input_type == "sf/s":
+                altered_img = img_gt / (
+                    img_ip + self.epsilon
+                )  # To avoid invalid values
+            elif input_type == "sf-s":
+                altered_img = img_gt - img_ip
+            altered_img = cv2.normalize(altered_img, None, 0, 1, cv2.NORM_MINMAX)
+            gt_img[i] = altered_img
+
+        return tuple(gt_img)
+
+    def __getitem__(self, index):
+        res = self.get_images(index)
+        return res
+
+    def __len__(self):
+        return len(self.image_paths)
