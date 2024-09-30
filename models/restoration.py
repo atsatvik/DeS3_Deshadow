@@ -129,7 +129,9 @@ class DiffusiveRestoration:
         p_size = self.config.data.image_size
         h_list, w_list = self.overlapping_grid_indices(x_cond, output_size=p_size, r=r)
         corners = [(i, j) for i in h_list for j in w_list]
+        # random noise
         x = torch.randn(x_cond.size(), device=self.diffusion.device)
+        # passing in random noise and shadow image as conditional
         x_output = self.diffusion.sample_image(
             x_cond, x, patch_locs=corners, patch_size=p_size
         )

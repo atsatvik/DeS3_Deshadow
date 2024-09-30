@@ -10,7 +10,7 @@ import re
 import random
 import cv2
 
-file_ext = ["png"]
+file_ext = ["png", "jpg"]
 
 
 class AISTDShadow:
