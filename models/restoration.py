@@ -32,18 +32,10 @@ class DiffusiveRestoration:
     def transform_output(self, output, conditional):
         output = np.array(output.detach().cpu().numpy()).astype(np.float32)
         conditional = np.array(conditional.detach().cpu().numpy()).astype(np.float32)
-        if self.input_type == "sf":
-            output = output
-        elif self.input_type == "sf-s":
+        if self.input_type == "sf-s":
             output += conditional
-            output = cv2.normalize(output, None, 0, 255, cv2.NORM_MINMAX).astype(
-                np.uint8
-            )
         elif self.input_type == "sf/s":
             output *= conditional
-            output = cv2.normalize(output, None, 0, 255, cv2.NORM_MINMAX).astype(
-                np.uint8
-            )
         output = torch.tensor(output, device=self.diffusion.device)
         return output
 
@@ -51,6 +43,8 @@ class DiffusiveRestoration:
         image_folder = os.path.join(
             self.args.image_folder, self.config.data.dataset, validation
         )
+        print(f"Saving images to path {image_folder}")
+
         with torch.no_grad():
             for i, (x, y) in enumerate(val_loader):
                 print(f"Restoring image: size {x.shape} ; ID {y}")
