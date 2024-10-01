@@ -12,6 +12,43 @@ import models
 import datasets
 import utils
 from models import DenoisingDiffusion
+import logging
+import sys
+import shutil
+
+
+def init_logger(path=""):
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(message)s",
+        handlers=[
+            logging.FileHandler(os.path.join(path, "train_logs.txt")),
+            logging.StreamHandler(sys.stdout),
+        ],
+    )
+
+
+def prepare_log_dir(args):
+    if not os.path.exists(args.log_dir):
+        os.makedirs(args.log_dir)
+
+    exp_dir = os.path.join(args.log_dir, args.exp_name)
+    if not os.path.exists(exp_dir):
+        os.makedirs(exp_dir)
+
+    exp_dir_folder_ls = os.listdir(exp_dir)
+    if not exp_dir_folder_ls:
+        exp_log_dir = os.path.join(exp_dir, f"{0}")
+        os.makedirs(exp_log_dir)
+    else:
+        exp_dir_folder_ls = [int(elem) for elem in exp_dir_folder_ls]
+        exp_dir_folder_ls.sort()
+        exp_log_dir = os.path.join(exp_dir, f"{int(exp_dir_folder_ls[-1]) + 1}")
+        os.makedirs(exp_log_dir)
+
+    config_file_path = os.path.join("configs", args.config)
+    shutil.copy(config_file_path, os.path.join(exp_log_dir, args.config))
+    return exp_log_dir
 
 
 def parse_args_and_config():
@@ -45,7 +82,7 @@ def parse_args_and_config():
     )
     parser.add_argument(
         "--resume",
-        default="/home1/yeying/DeS3_Deshadow/ckpts/AISTDShadow_ddpm.pth.tar",
+        default="",
         type=str,
         help="Path for checkpoint to load and resume",
     )
@@ -76,9 +113,15 @@ def parse_args_and_config():
     )
     parser.add_argument(
         "--input_type",
-        default=None,
+        default="sf",
         type=str,
         help="Which input to use among -> sf (shadow free img), sf/s (shadow free img / shadow img), sf-s (shadow free - shadow)",
+    )
+    parser.add_argument(
+        "--use_class",
+        default=False,
+        type=bool,
+        help="Wether to use class embeddings or not",
     )
     args = parser.parse_args()
 
@@ -102,9 +145,24 @@ def dict2namespace(config):
 
 def main():
     args, config = parse_args_and_config()
+    logger = logging.getLogger(__name__)
+
+    exp_log_dir = prepare_log_dir(args)
+    init_logger(exp_log_dir)
+
+    logger.info(f"Saving log files to dir:{exp_log_dir}")
+
+    # Logging all args
+    logger.info("\n=========================================")
+    logger.info(f"Experiment Settings:")
+    string = ""
+    for arg, value in vars(args).items():
+        string += f"({arg}: {value}) ; "
+    logger.info(string[0:-2])
+    logger.info("=========================================\n")
 
     device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
-    print("Using device: {}".format(device))
+    logger.info(f"Using device: {device}")
     config.device = device
 
     # set random seed
@@ -115,12 +173,12 @@ def main():
     torch.backends.cudnn.benchmark = True
 
     # data loading
-    print("=> using dataset '{}'".format(config.data.dataset))
+    logger.info(f"Using dataset {config.data.dataset}")
     DATASET = datasets.__dict__[config.data.dataset](args, config)
 
     # create model
-    print("=> creating denoising-diffusion model...")
-    diffusion = DenoisingDiffusion(args, config)
+    logger.info("Creating denoising-diffusion model...")
+    diffusion = DenoisingDiffusion(args, config, exp_log_dir)
     diffusion.train(DATASET)
 
 

@@ -15,6 +15,7 @@ import numpy as np
 import math
 from itertools import repeat
 import collections.abc
+import logging
 
 # from timm.models.vision_transformer import PatchEmbed, Attention, Mlp
 
@@ -331,6 +332,18 @@ class DiT(nn.Module):
         # learn_sigma=True,
     ):
         super().__init__()
+        self.logger = logging.getLogger(__name__)
+
+        self.logger.info(f"input_size: {input_size}")
+        self.logger.info(f"patch_size: {patch_size}")
+        self.logger.info(f"in_channels: {in_channels}")
+        self.logger.info(f"hidden_size: {hidden_size}")
+        self.logger.info(f"depth: {depth}")
+        self.logger.info(f"num_heads: {num_heads}")
+        self.logger.info(f"mlp_ratio: {mlp_ratio}")
+        self.logger.info(f"class_dropout_prob: {class_dropout_prob}")
+        self.logger.info(f"num_classes: {num_classes}")
+
         # self.learn_sigma = learn_sigma
         self.in_channels = in_channels
         # self.out_channels = in_channels * 2 if learn_sigma else in_channels
@@ -344,7 +357,8 @@ class DiT(nn.Module):
         self.t_embedder = TimestepEmbedder(hidden_size)
         self.y_embedder = LabelEmbedder(num_classes, hidden_size, class_dropout_prob)
         num_patches = self.x_embedder.num_patches
-        print("-num_patches-", num_patches, self.x_embedder.grid_size)
+        self.logger.info(f"-num_patches {num_patches}")
+        self.logger.info(f"x_embedder.grid_size: {self.x_embedder.grid_size}")
         # Will use fixed sin-cos embedding:
         self.pos_embed = nn.Parameter(
             torch.zeros(1, num_patches, hidden_size), requires_grad=False
@@ -412,8 +426,7 @@ class DiT(nn.Module):
         imgs = x.reshape(shape=(x.shape[0], c, h * p, h * p))
         return imgs
 
-    # def forward(self, x, t, y):
-    def forward(self, x, t):
+    def forward(self, x, t, y=[]):
         """
         Forward pass of DiT.
         x: (N, C, H, W) tensor of spatial inputs (images or latent representations of images)
@@ -425,10 +438,13 @@ class DiT(nn.Module):
             self.x_embedder(x) + self.pos_embed
         )  # (N, T, D), where T = H * W / patch_size ** 2
         t = self.t_embedder(t)  # (N, D)
-        # y = self.y_embedder(y, self.training)    # (N, D)
-        # print('-y_embedder-', y.shape)
-        # c = t + y                                # (N, D)
         c = t  # (N, D)
+
+        if len(y) != 0:
+            y = y.squeeze()
+            y = self.y_embedder(y, self.training)  # (N, D)
+            c = t + y  # (N, D)
+
         for block in self.blocks:
             x = block(x, c)  # (N, T, D)
         x = self.final_layer(x, c)  # (N, T, patch_size ** 2 * out_channels)

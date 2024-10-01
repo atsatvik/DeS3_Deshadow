@@ -12,6 +12,7 @@ from models.unet import ShadowDiffusionUNet
 from models.transformer2d import My_DiT_test
 from torch.utils.tensorboard import SummaryWriter
 import shutil
+import logging
 
 
 def data_transform(X):
@@ -104,31 +105,45 @@ def get_beta_schedule(beta_schedule, *, beta_start, beta_end, num_diffusion_time
     return betas
 
 
-def noise_estimation_loss(model, x0, t, e, b):
+def noise_estimation_loss(model, x0, t, e, b, labels):
     a = (1 - b).cumprod(dim=0).index_select(0, t).view(-1, 1, 1, 1)
     x = x0[:, 3:, :, :] * a.sqrt() + e * (1.0 - a).sqrt()  # adding noise to the GT
+    if len(labels) != 0:
+        labels = labels[0][:, :1]
     output = model(
-        torch.cat([x0[:, :3, :, :], x], dim=1), t.float()
+        torch.cat([x0[:, :3, :, :], x], dim=1), t.float(), labels
     )  # concatenating input img (shadow) to GT
     return (e - output).square().sum(dim=(1, 2, 3)).mean(dim=0)
 
 
 class DenoisingDiffusion(object):
-    def __init__(self, args, config, run=""):
+    def __init__(self, args, config, exp_log_dir="", run=""):
         super().__init__()
         self.args = args
         self.config = config
         self.device = config.device
+        self.logger = logging.getLogger(__name__)
+        self.exp_log_dir = exp_log_dir
 
-        if self.args.input_type is not None:
-            print(f"Using Input Image type {self.args.input_type}")
+        if self.args.use_class:
+            num_classes = 2
+            class_dropout_prob = 0.0
+        else:
+            num_classes = 4
+            class_dropout_prob = 0.0
+
+        self.logger.info(f"Using Input Image type {self.args.input_type}")
 
         self.model = ShadowDiffusionUNet(config)
         if self.args.test_set == "AISTD":
-            print("Using Diffusion model with Transformer Backbone")
-            self.model = My_DiT_test(input_size=config.data.image_size)
+            self.logger.info("Using Diffusion model with Transformer Backbone")
+            self.model = My_DiT_test(
+                input_size=config.data.image_size,
+                class_dropout_prob=class_dropout_prob,
+                num_classes=num_classes,
+            )
         else:
-            print("Using Diffusion model with U-net Backbone")
+            self.logger.info("Using Diffusion model with U-net Backbone")
 
         self.model.to(self.device)
         self.model = torch.nn.DataParallel(self.model)
@@ -155,30 +170,7 @@ class DenoisingDiffusion(object):
         if "test" in self.run:
             return
 
-        if not os.path.exists(self.args.log_dir):
-            os.makedirs(self.args.log_dir)
-
-        self.exp_dir = os.path.join(self.args.log_dir, self.args.exp_name)
-        if not os.path.exists(self.exp_dir):
-            os.makedirs(self.exp_dir)
-
-        exp_dir_folder_ls = os.listdir(self.exp_dir)
-        if not exp_dir_folder_ls:
-            self.exp_log_dir = os.path.join(self.exp_dir, f"{0}")
-            os.makedirs(self.exp_log_dir)
-        else:
-            exp_dir_folder_ls = [int(elem) for elem in exp_dir_folder_ls]
-            exp_dir_folder_ls.sort()
-            self.exp_log_dir = os.path.join(
-                self.exp_dir, f"{int(exp_dir_folder_ls[-1]) + 1}"
-            )
-            os.makedirs(self.exp_log_dir)
-
         self.writer = SummaryWriter(log_dir=self.exp_log_dir)
-        print(f"Saving log files to dir:{self.exp_log_dir}")
-
-        config_file_path = os.path.join("configs", self.args.config)
-        shutil.copy(config_file_path, os.path.join(self.exp_log_dir, self.args.config))
 
         self.keep_last_weights = self.args.num_last_weights
         self.save_after_epoch = self.args.save_after_epoch
@@ -192,10 +184,8 @@ class DenoisingDiffusion(object):
         self.ema_helper.load_state_dict(checkpoint["ema_helper"])
         if ema:
             self.ema_helper.ema(self.model)
-        print(
-            "=> loaded checkpoint '{}' (epoch {}, step {})".format(
-                load_path, checkpoint["epoch"], self.step
-            )
+        self.logger.info(
+            f"Loaded checkpoint {load_path} (epoch {checkpoint[epoch]}, step {self.step})"
         )
 
     def train(self, DATASET):
@@ -206,10 +196,10 @@ class DenoisingDiffusion(object):
             self.load_ddm_ckpt(self.args.resume)
 
         for epoch in range(self.start_epoch, self.config.training.n_epochs):
-            print("epoch: ", epoch)
+            self.logger.info(f"epoch: {epoch}")
             data_start = time.time()
             data_time = 0
-            for i, (x, img_id, label) in tqdm(
+            for i, (x, img_id, labels) in tqdm(
                 enumerate(train_loader), desc=f"Training Epoch {epoch}: "
             ):
                 x = x.flatten(start_dim=0, end_dim=1) if x.ndim == 5 else x
@@ -227,10 +217,10 @@ class DenoisingDiffusion(object):
                     low=0, high=self.num_timesteps, size=(n // 2 + 1,)
                 ).to(self.device)
                 t = torch.cat([t, self.num_timesteps - t - 1], dim=0)[:n]
-                loss = noise_estimation_loss(self.model, x, t, e, b)
+                loss = noise_estimation_loss(self.model, x, t, e, b, labels)
 
                 if self.step % 10 == 0:
-                    print(
+                    self.logger.info(
                         f"step: {self.step}, loss: {loss.item()}, data time: {data_time / (i+1)}"
                     )
                 global_step = epoch * len(train_loader) + i
@@ -279,7 +269,7 @@ class DenoisingDiffusion(object):
                 if self.keep_last_weights:
                     self.remove_extra_weight_files()
 
-                print(f"Saving checkpoint at {save_path}")
+                self.logger.info(f"Saving checkpoint at {save_path}")
 
         self.writer.close()
 
