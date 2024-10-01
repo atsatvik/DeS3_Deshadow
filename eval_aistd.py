@@ -79,6 +79,18 @@ def parse_args_and_config():
         type=int,
         help="Save Checkpoint after N Epochs",
     )
+    parser.add_argument(
+        "--input_type",
+        default="sf",
+        type=str,
+        help="Which input to use among -> sf (shadow free img), sf/s (shadow free img / shadow img), sf-s (shadow free - shadow)",
+    )
+    parser.add_argument(
+        "--use_class",
+        default=False,
+        type=bool,
+        help="Wether to use class embeddings or not",
+    )
     parser.add_argument("--sid", type=str, default=None)
     args = parser.parse_args()
     print(args)
@@ -106,7 +118,7 @@ def main():
 
     # setup device to run
     device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
-    print("Using device: {}".format(device))
+    print(f"Using device: {device}")
     config.device = device
 
     if torch.cuda.is_available():
@@ -117,18 +129,18 @@ def main():
     # set random seed
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
-    print("-args.seed-", args.seed)
+    print(f"args.seed {args.seed}")
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(args.seed)
     torch.backends.cudnn.benchmark = True
 
     # data loading
-    print("=> using dataset '{}'".format(config.data.dataset))
-    DATASET = datasets.__dict__[config.data.dataset](config)
+    print(f"Using dataset {config.data.dataset}")
+    DATASET = datasets.__dict__[config.data.dataset](args, config)
     _, val_loader = DATASET.get_loaders(parse_patches=False, validation=args.test_set)
 
     # create model
-    print("=> creating denoising-diffusion model with wrapper...")
+    print("Creating denoising-diffusion model with wrapper...")
     diffusion = DenoisingDiffusion(args, config, run="test")
     model = DiffusiveRestoration(diffusion, args, config)
     model.restore(val_loader, validation=args.test_set, r=args.grid_r, sid=args.sid)

@@ -3,6 +3,8 @@ import torch.nn as nn
 import utils
 import torchvision
 import os
+import numpy as np
+import cv2
 
 
 def data_transform(X):
@@ -19,6 +21,7 @@ class DiffusiveRestoration:
         self.args = args
         self.config = config
         self.diffusion = diffusion
+        self.input_type = self.args.input_type
 
         if os.path.isfile(args.resume):
             self.diffusion.load_ddm_ckpt(args.resume, ema=True)
@@ -26,13 +29,31 @@ class DiffusiveRestoration:
         else:
             print("Pre-trained diffusion model path is missing!")
 
+    def transform_output(self, output, conditional):
+        output = np.array(output.detach().cpu().numpy()).astype(np.float32)
+        conditional = np.array(conditional.detach().cpu().numpy()).astype(np.float32)
+        if self.input_type == "sf":
+            output = output
+        elif self.input_type == "sf-s":
+            output += conditional
+            output = cv2.normalize(output, None, 0, 255, cv2.NORM_MINMAX).astype(
+                np.uint8
+            )
+        elif self.input_type == "sf/s":
+            output *= conditional
+            output = cv2.normalize(output, None, 0, 255, cv2.NORM_MINMAX).astype(
+                np.uint8
+            )
+        output = torch.tensor(output, device=self.diffusion.device)
+        return output
+
     def restore(self, val_loader, validation="snow", r=None, sid=None):
         image_folder = os.path.join(
             self.args.image_folder, self.config.data.dataset, validation
         )
         with torch.no_grad():
             for i, (x, y) in enumerate(val_loader):
-                print("-restore-", x.shape, y)
+                print(f"Restoring image: size {x.shape} ; ID {y}")
                 if sid:
                     y = y[0]
                     if sid + "__" in y:
@@ -109,6 +130,8 @@ class DiffusiveRestoration:
                     # print('x_cond, x_gt = ',x_cond.shape, x_gt.shape) #[1, 3, 256, 256]
                     x_output = self.diffusive_restoration(x_cond, r=r)  ##3
                     x_output = inverse_data_transform(x_output)  ##4
+                    x_output = self.transform_output(x_output, x_cond)
+
                     utils.logging.save_image(
                         x_cond, os.path.join(image_folder, "input", f"{frame}.png")
                     )
