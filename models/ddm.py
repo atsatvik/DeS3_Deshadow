@@ -109,7 +109,8 @@ def noise_estimation_loss(model, x0, t, e, b, labels):
     a = (1 - b).cumprod(dim=0).index_select(0, t).view(-1, 1, 1, 1)
     x = x0[:, 3:, :, :] * a.sqrt() + e * (1.0 - a).sqrt()  # adding noise to the GT
     if len(labels) != 0:
-        labels = labels[0][:, :1]
+        labels = labels.flatten(start_dim=0, end_dim=1)
+        labels = labels[:, :1]
     output = model(
         torch.cat([x0[:, :3, :, :], x], dim=1), t.float(), labels
     )  # concatenating input img (shadow) to GT

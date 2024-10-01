@@ -248,7 +248,7 @@ class AISTDShadowDataset(torch.utils.data.Dataset):
                 ip_lb = 0
             gt_lb = 0
             labels.append((ip_lb, gt_lb))
-        return torch.tensor(labels).squeeze()
+        return torch.tensor(labels)
 
     def prepare_GT(self, input_img, gt_img, input_type):
         gt_img = list(gt_img)
