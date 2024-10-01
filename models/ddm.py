@@ -185,7 +185,7 @@ class DenoisingDiffusion(object):
         if ema:
             self.ema_helper.ema(self.model)
         self.logger.info(
-            f"Loaded checkpoint {load_path} (epoch {checkpoint[epoch]}, step {self.step})"
+            f"Loaded checkpoint {load_path} (epoch {self.start_epoch}, step {self.step})"
         )
 
     def train(self, DATASET):
