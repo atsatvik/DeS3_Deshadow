@@ -130,7 +130,7 @@ class DenoisingDiffusion(object):
             class_dropout_prob = 0.0
         else:
             num_classes = 4
-            class_dropout_prob = 0.0
+            class_dropout_prob = 0.1
 
         self.logger.info(f"Using Input Image type {self.args.input_type}")
 
