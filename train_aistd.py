@@ -41,7 +41,7 @@ def prepare_log_dir(args):
         exp_log_dir = os.path.join(exp_dir, f"{0}")
         os.makedirs(exp_log_dir)
     else:
-        for i in range(exp_dir_folder_ls):
+        for i in range(len(exp_dir_folder_ls)):
             try:
                 exp_dir_folder_ls[i] = int(exp_dir_folder_ls[i])
             except:
