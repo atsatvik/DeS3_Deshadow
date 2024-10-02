@@ -41,12 +41,13 @@ def prepare_log_dir(args):
         exp_log_dir = os.path.join(exp_dir, f"{0}")
         os.makedirs(exp_log_dir)
     else:
+        ls = []
         for i in range(len(exp_dir_folder_ls)):
             try:
-                exp_dir_folder_ls[i] = int(exp_dir_folder_ls[i])
+                ls.append(int(exp_dir_folder_ls[i]))
             except:
                 continue
-
+        exp_dir_folder_ls = ls
         exp_dir_folder_ls.sort()
         exp_log_dir = os.path.join(exp_dir, f"{int(exp_dir_folder_ls[-1]) + 1}")
         os.makedirs(exp_log_dir)
