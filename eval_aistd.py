@@ -91,6 +91,12 @@ def parse_args_and_config():
         type=bool,
         help="Wether to use class embeddings or not",
     )
+    parser.add_argument(
+        "--prefix",
+        default=None,
+        type=str,
+        help="name of folder to save the test images",
+    )
     parser.add_argument("--sid", type=str, default=None)
     args = parser.parse_args()
     print(args)

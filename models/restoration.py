@@ -41,7 +41,10 @@ class DiffusiveRestoration:
 
     def restore(self, val_loader, validation="snow", r=None, sid=None):
         image_folder = os.path.join(
-            self.args.image_folder, self.config.data.dataset, validation
+            self.args.image_folder,
+            self.config.data.dataset,
+            self.args.prefix,
+            validation,
         )
         print(f"Saving images to path {image_folder}")
 
