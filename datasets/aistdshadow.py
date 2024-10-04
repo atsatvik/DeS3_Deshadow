@@ -47,6 +47,7 @@ class AISTDShadow:
             label="test",
             input_type=self.args.input_type,
             use_class=self.args.use_class,
+            randomize=False,
         )
 
         if not parse_patches:
@@ -83,6 +84,7 @@ class AISTDShadowDataset(torch.utils.data.Dataset):
         label="",
         input_type="sf",
         use_class=False,
+        randomize=True,
     ):
         if input_type not in ["sf/s", "sf-s", "sf"]:
             raise Exception("Incorrect input_type choose from: <sf/s>, <sf-s>, <sf>")
@@ -116,7 +118,8 @@ class AISTDShadowDataset(torch.utils.data.Dataset):
         mask_paths = [os.path.join(mask_folder, f) for f in mask_names]
 
         x = list(enumerate(image_paths))
-        random.shuffle(x)
+        if randomize:
+            random.shuffle(x)
         indices, image_paths = zip(*x)
         GT_paths = [GT_paths[idx] for idx in indices]
         mask_paths = [mask_paths[idx] for idx in indices]

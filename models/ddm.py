@@ -200,9 +200,11 @@ class DenoisingDiffusion(object):
             self.logger.info(f"epoch: {epoch}")
             data_start = time.time()
             data_time = 0
+            iteration_times = []
             for i, (x, img_id, labels) in tqdm(
                 enumerate(train_loader), desc=f"Training Epoch {epoch}: "
             ):
+                start_time = time.time()
                 x = x.flatten(start_dim=0, end_dim=1) if x.ndim == 5 else x
                 n = x.size(0)
                 data_time += time.time() - data_start
@@ -232,6 +234,13 @@ class DenoisingDiffusion(object):
                 self.optimizer.step()
                 self.ema_helper.update(self.model)
                 data_start = time.time()
+
+                end_time = time.time()
+                iteration_time = end_time - start_time
+                iteration_times.append(iteration_time)
+
+            average_time = sum(iteration_times) / num_iterations
+            print(f"average_time: {average_time} ")
 
             # if self.step % self.config.training.validation_freq == 0:
             if epoch % self.save_after_epoch == 0 and epoch != 0:

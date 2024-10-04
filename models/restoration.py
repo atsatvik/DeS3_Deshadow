@@ -151,6 +151,7 @@ class DiffusiveRestoration:
         corners = [(i, j) for i in h_list for j in w_list]
         # random noise
         x = torch.randn(x_cond.size(), device=self.diffusion.device)
+        # x = x + 0.25 * x_cond
         # passing in random noise and shadow image as conditional
         x_output = self.diffusion.sample_image(
             x_cond, x, patch_locs=corners, patch_size=p_size
