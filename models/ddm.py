@@ -201,6 +201,7 @@ class DenoisingDiffusion(object):
             data_start = time.time()
             data_time = 0
             iteration_times = []
+            break_loop = 10
             for i, (x, img_id, labels) in tqdm(
                 enumerate(train_loader), desc=f"Training Epoch {epoch}: "
             ):
@@ -222,10 +223,10 @@ class DenoisingDiffusion(object):
                 t = torch.cat([t, self.num_timesteps - t - 1], dim=0)[:n]
                 loss = noise_estimation_loss(self.model, x, t, e, b, labels)
 
-                if self.step % 10 == 0:
-                    self.logger.info(
-                        f"step: {self.step}, loss: {loss.item()}, data time: {data_time / (i+1)}"
-                    )
+                # if self.step % 10 == 0:
+                #     self.logger.info(
+                #         f"step: {self.step}, loss: {loss.item()}, data time: {data_time / (i+1)}"
+                #     )
                 global_step = epoch * len(train_loader) + i
                 self.writer.add_scalar("Loss/train", loss.item(), global_step)
 
@@ -238,9 +239,16 @@ class DenoisingDiffusion(object):
                 end_time = time.time()
                 iteration_time = end_time - start_time
                 iteration_times.append(iteration_time)
+                if i == break_loop:
+                    break
 
-            average_time = sum(iteration_times) / num_iterations
-            print(f"average_time: {average_time} ")
+            average_time = sum(iteration_times) / len(iteration_times)
+            threads_used = torch.get_num_threads()
+            print()
+            self.logger.info(f"Number of threads used: {threads_used}")
+            self.logger.info(f"average_time: {average_time} ")
+            print()
+            return
 
             # if self.step % self.config.training.validation_freq == 0:
             if epoch % self.save_after_epoch == 0 and epoch != 0:

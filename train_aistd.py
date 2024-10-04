@@ -17,6 +17,9 @@ import sys
 import shutil
 
 
+os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
+
+
 def init_logger(path=""):
     logging.basicConfig(
         level=logging.INFO,
@@ -184,8 +187,14 @@ def main():
 
     # create model
     logger.info("Creating denoising-diffusion model...")
-    diffusion = DenoisingDiffusion(args, config, exp_log_dir)
-    diffusion.train(DATASET)
+    num_cpus = [1, 2, 4, 8, 16, 24, 32, 56]
+    # num_cpus = [32]
+
+    for cpu_count in num_cpus:
+        diffusion = DenoisingDiffusion(args, config, exp_log_dir)
+        # os.environ["OMP_NUM_THREADS"] = str(cpu_count)
+        torch.set_num_threads(cpu_count)
+        diffusion.train(DATASET)
 
 
 if __name__ == "__main__":
