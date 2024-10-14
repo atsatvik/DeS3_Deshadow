@@ -57,6 +57,21 @@ def prepare_log_dir(args):
     return exp_log_dir
 
 
+def set_guidance_type(logger):
+    while True:
+        logger.info(f"Choose guidance image type: input 1, 2, 3, 4")
+        logger.info(f"1: RGB (shadow image)")
+        logger.info(f"2: RGB concatenated with log gray (shadow image)")
+        logger.info(f"3: Log gray")
+        logger.info(f"4: Reprojected RGB concatenated wit log gray")
+        guidance_type = input()
+        if guidance_type not in ["1", "2", "3", "4"]:
+            logger.info("Please choose from: 1, 2, 3, 4")
+        else:
+            break
+    return guidance_type
+
+
 def parse_args_and_config():
     parser = argparse.ArgumentParser(description="Training DeS3")
     parser.add_argument(
@@ -155,6 +170,9 @@ def main():
 
     exp_log_dir = prepare_log_dir(args)
     init_logger(exp_log_dir)
+
+    guidance_type = set_guidance_type(logger)
+    config.guidance_type = guidance_type
 
     logger.info(f"Saving log files to dir:{exp_log_dir}")
 

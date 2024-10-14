@@ -22,6 +22,7 @@ class AISTDShadow:
             [torchvision.transforms.ToTensor()]
         )
         self.logger = logging.getLogger(__name__)
+        self.guidance_type = self.config.guidance_type
 
     def get_loaders(self, parse_patches=True, validation="AISTD"):
         self.logger.info("Evaluating AISTD test set...")
@@ -31,10 +32,11 @@ class AISTDShadow:
             patch_size=self.config.data.image_size,
             transforms=self.transforms,
             parse_patches=parse_patches,
-            folders=["train_A", "train_C", "train_B"],
+            folders=["train_A", "train_C", "train_B", "loggray"],
             label="train",
             input_type=self.args.input_type,
             use_class=self.args.use_class,
+            guidance_type=self.guidance_type,
         )
 
         val_dataset = AISTDShadowDataset(
@@ -43,10 +45,11 @@ class AISTDShadow:
             patch_size=self.config.data.image_size,
             transforms=self.transforms,
             parse_patches=parse_patches,
-            folders=["test_A", "test_C", "test_B"],
+            folders=["test_A", "test_C", "test_B", "loggray"],
             label="test",
             input_type=self.args.input_type,
             use_class=self.args.use_class,
+            guidance_type=self.guidance_type,
         )
 
         if not parse_patches:
@@ -83,7 +86,12 @@ class AISTDShadowDataset(torch.utils.data.Dataset):
         label="",
         input_type="sf",
         use_class=False,
+        guidance_type="1",
     ):
+        self.mask_paths = None
+        self.loggray_paths = None
+
+        self.guidance_type = guidance_type
         if input_type not in ["sf/s", "sf-s", "sf"]:
             raise Exception("Incorrect input_type choose from: <sf/s>, <sf-s>, <sf>")
 
@@ -98,37 +106,49 @@ class AISTDShadowDataset(torch.utils.data.Dataset):
         if not folders:
             raise Exception("Incorrect or missing images and GT folders")
         folders = [os.path.join(dir, label, f) for f in folders]
-        image_folder, GT_folder, mask_folder = folders[0], folders[1], folders[2]
+        image_folder, GT_folder = (folders[0], folders[1])
 
         img_names = [
             f for f in os.listdir(image_folder) if f.split(".")[-1] in file_ext
         ]
         GT_names = [f for f in os.listdir(GT_folder) if f.split(".")[-1] in file_ext]
-        mask_names = [
-            f for f in os.listdir(mask_folder) if f.split(".")[-1] in file_ext
-        ]
 
         if not img_names == GT_names:
-            raise Exception("images and GT have inconsistency")
+            raise Exception("images and GT are inconsist")
 
         image_paths = [os.path.join(image_folder, f) for f in img_names]
         GT_paths = [os.path.join(GT_folder, f) for f in GT_names]
-        mask_paths = [os.path.join(mask_folder, f) for f in mask_names]
 
         x = list(enumerate(image_paths))
         random.shuffle(x)
         indices, image_paths = zip(*x)
         GT_paths = [GT_paths[idx] for idx in indices]
-        mask_paths = [mask_paths[idx] for idx in indices]
         self.dir = None
 
         self.image_paths = image_paths
         self.GT_paths = GT_paths
-        self.mask_paths = mask_paths
         self.patch_size = patch_size
         self.transforms = transforms
         self.n = n
         self.parse_patches = parse_patches
+
+        if self.use_class:
+            mask_folder = folders[2]
+            mask_names = [
+                f for f in os.listdir(mask_folder) if f.split(".")[-1] in file_ext
+            ]
+            mask_paths = [os.path.join(mask_folder, f) for f in mask_names]
+            mask_paths = [mask_paths[idx] for idx in indices]
+            self.mask_paths = mask_paths
+
+        if self.guidance_type in ["2", "3", "4"]:
+            loggray_folder = folders[3]
+            loggray_names = [
+                f for f in os.listdir(loggray_folder) if f.split(".")[-1] in file_ext
+            ]
+            loggray_paths = [os.path.join(loggray_folder, f) for f in loggray_names]
+            loggray_paths = [loggray_paths[idx] for idx in indices]
+            self.loggray_paths = loggray_paths
 
     @staticmethod
     def get_params(img, output_size, n):
@@ -152,7 +172,7 @@ class AISTDShadowDataset(torch.utils.data.Dataset):
     def get_images(self, index):
         input_name = self.image_paths[index]
         gt_name = self.GT_paths[index]
-        mask_name = self.mask_paths[index]
+        loggray_img = None
         labels = []
         # print('input_name,gt_name',input_name,gt_name)
         datasetname = re.split("/", input_name)[-3]
@@ -161,26 +181,39 @@ class AISTDShadowDataset(torch.utils.data.Dataset):
         # print('img_id',img_id)
         input_img = PIL.Image.open(input_name)
         gt_img = PIL.Image.open(gt_name)
-        mask_img = PIL.Image.open(mask_name).convert("L")
+
+        if self.guidance_type in ["2", "3", "4"]:
+            loggray_name = self.loggray_paths[index]
+            loggray_img = np.array(PIL.Image.open(loggray_name))
+            input_img = np.array(input_img)
+            if self.guidance_type == "2":
+                input_img = PIL.Image.fromarray(
+                    np.concatenate([input_img, loggray_img[:, :, np.newaxis]], axis=2)
+                )
+            elif self.guidance_type == "3":
+                input_img = PIL.Image.fromarray(loggray_img)
 
         if self.parse_patches:
             wd_new = 512
             ht_new = 512
             input_img = input_img.resize((wd_new, ht_new), PIL.Image.ANTIALIAS)
             gt_img = gt_img.resize((wd_new, ht_new), PIL.Image.ANTIALIAS)
-            mask_img = mask_img.resize((wd_new, ht_new), PIL.Image.ANTIALIAS)
+
             # print('-input_img.shape,gt_img.shape-',input_img.size,gt_img.size)
             i, j, h, w = self.get_params(
                 input_img, (self.patch_size, self.patch_size), self.n
             )
             input_img = self.n_random_crops(input_img, i, j, h, w)
             gt_img = self.n_random_crops(gt_img, i, j, h, w)
-            mask_img = self.n_random_crops(mask_img, i, j, h, w)
 
             if self.input_type != "sf":
                 gt_img = self.prepare_GT(input_img, gt_img, self.input_type)
 
             if self.use_class:
+                mask_name = self.mask_paths[index]
+                mask_img = PIL.Image.open(mask_name).convert("L")
+                mask_img = mask_img.resize((wd_new, ht_new), PIL.Image.ANTIALIAS)
+                mask_img = self.n_random_crops(mask_img, i, j, h, w)
                 labels = self.prepare_labels(input_img, gt_img, mask_img)
 
             # self.counter += 1
@@ -192,7 +225,7 @@ class AISTDShadowDataset(torch.utils.data.Dataset):
                 )
                 for i in range(self.n)
             ]
-            # print("labels, ", labels)
+            # print("labels ", labels)
             return torch.stack(outputs, dim=0), img_id, labels
         else:
             wd_new = 256

@@ -105,14 +105,18 @@ def get_beta_schedule(beta_schedule, *, beta_start, beta_end, num_diffusion_time
     return betas
 
 
-def noise_estimation_loss(model, x0, t, e, b, labels):
+def noise_estimation_loss(model, x0, t, e, b, labels, slice_idx):
     a = (1 - b).cumprod(dim=0).index_select(0, t).view(-1, 1, 1, 1)
-    x = x0[:, 3:, :, :] * a.sqrt() + e * (1.0 - a).sqrt()  # adding noise to the GT
+    x = (
+        x0[:, slice_idx:, :, :] * a.sqrt() + e * (1.0 - a).sqrt()
+    )  # adding noise to the GT
+
     if len(labels) != 0:
         labels = labels.flatten(start_dim=0, end_dim=1)
         labels = labels[:, :1]
+
     output = model(
-        torch.cat([x0[:, :3, :, :], x], dim=1), t.float(), labels
+        torch.cat([x0[:, :slice_idx, :, :], x], dim=1), t.float(), labels
     )  # concatenating input img (shadow) to GT
     return (e - output).square().sum(dim=(1, 2, 3)).mean(dim=0)
 
@@ -133,8 +137,11 @@ class DenoisingDiffusion(object):
             num_classes = 4
             class_dropout_prob = 0.1
 
-        self.logger.info(f"Using Input Image type {self.args.input_type}")
+        guidance_type_to_channels = {"1": 6, "2": 7, "3": 4, "4": 7}
+        self.in_channels = guidance_type_to_channels[config.guidance_type]
+        self.slice_idx = self.in_channels - 3
 
+        self.logger.info(f"Using Input Image type {self.args.input_type}")
         self.model = ShadowDiffusionUNet(config)
         if self.args.test_set == "AISTD":
             self.logger.info("Using Diffusion model with Transformer Backbone")
@@ -142,6 +149,7 @@ class DenoisingDiffusion(object):
                 input_size=config.data.image_size,
                 class_dropout_prob=class_dropout_prob,
                 num_classes=num_classes,
+                in_channels=self.in_channels,
             )
         else:
             self.logger.info("Using Diffusion model with U-net Backbone")
@@ -211,14 +219,22 @@ class DenoisingDiffusion(object):
 
                 x = x.to(self.device)
                 x = data_transform(x)
-                e = torch.randn_like(x[:, 3:, :, :])
+                e = torch.randn_like(x[:, self.slice_idx :, :, :])
                 b = self.betas
 
                 t = torch.randint(
                     low=0, high=self.num_timesteps, size=(n // 2 + 1,)
                 ).to(self.device)
                 t = torch.cat([t, self.num_timesteps - t - 1], dim=0)[:n]
-                loss = noise_estimation_loss(self.model, x, t, e, b, labels)
+                loss = noise_estimation_loss(
+                    self.model,
+                    x,
+                    t,
+                    e,
+                    b,
+                    labels,
+                    self.slice_idx,
+                )
 
                 if self.step % 10 == 0:
                     self.logger.info(
