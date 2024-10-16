@@ -213,7 +213,6 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     with torch.no_grad():
-
         # prepare directories
         root_dir = Path(args.root_dir)
         images_paths = [
