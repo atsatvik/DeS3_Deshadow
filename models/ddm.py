@@ -331,10 +331,7 @@ class DenoisingDiffusion(object):
         return xs
 
     def sample_validation_patches(self, val_loader, step):
-        image_folder = os.path.join(
-            self.args.image_folder,
-            self.config.data.dataset + str(self.config.data.image_size),
-        )
+        image_folder = os.path.join(self.exp_log_dir, self.config.data.dataset + str(self.config.data.image_size))
         if not os.path.exists(image_folder):
             os.makedirs(image_folder)
 
@@ -343,7 +340,7 @@ class DenoisingDiffusion(object):
                 x = x.flatten(start_dim=0, end_dim=1) if x.ndim == 5 else x
                 break
             n = x.size(0)
-            x_cond = x[:, :3, :, :].to(self.device)
+            x_cond = x[:, :self.slice_idx, :, :].to(self.device)
             x_cond = data_transform(x_cond)
             x = torch.randn(
                 n,

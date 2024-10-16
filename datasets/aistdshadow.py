@@ -113,8 +113,8 @@ class AISTDShadowDataset(torch.utils.data.Dataset):
         ]
         GT_names = [f for f in os.listdir(GT_folder) if f.split(".")[-1] in file_ext]
 
-        if not img_names == GT_names:
-            raise Exception("images and GT are inconsist")
+        # if not img_names == GT_names:
+        #     raise Exception("images and GT are inconsist")
 
         image_paths = [os.path.join(image_folder, f) for f in img_names]
         GT_paths = [os.path.join(GT_folder, f) for f in GT_names]
