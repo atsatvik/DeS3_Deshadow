@@ -61,7 +61,7 @@ def set_guidance_type(logger):
     while True:
         logger.info(f"Choose guidance image type: input 1, 2, 3, 4")
         logger.info(f"1: RGB (shadow image)")
-        logger.info(f"2: RGB concatenated with log gray (shadow image)")
+        logger.info(f"2: RGB (shadow image) concatenated with log gray ")
         logger.info(f"3: Log gray")
         logger.info(f"4: Reprojected RGB concatenated wit log gray")
         guidance_type = input()
