@@ -3,7 +3,7 @@ import numpy as np
 import os
 import plotly.graph_objects as go
 from tqdm import tqdm
-from imageutils import Image
+from inference.imageutils import Image
 
 
 class processLogImage:
@@ -414,9 +414,9 @@ class processLogImage:
 
         return [p0, p0 + 10 * direction_vector], best_inliers_mask
 
-    def getGrayImagebyPointSelection(self, rgb_img, num_points=2):
+    def getGrayImagebyPointSelection(self, log_img, rgb_img, num_points=2, title="img"):
         while True:
-            points = self.Image_.getPoints(rgb_img, num_points=num_points, title="img")
+            points = self.Image_.getPoints(rgb_img, num_points=num_points, title=title)
             lit_shadow_pts = [points[-2], points[-1]]  # lit, shadow
             ISD_vec = self.estimateISDwithNeigbors(
                 log_img, lit_shadow_pts, kernel=(5, 5)

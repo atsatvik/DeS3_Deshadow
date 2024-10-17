@@ -69,8 +69,9 @@ class Image:
         return x1, y1, x2, y2
 
     def getPoints(self, rgb_img, num_points=2, title="img"):
+        global points
+
         def select_points(event, x, y, flags, param):
-            global points
             if event == cv2.EVENT_LBUTTONDOWN:
                 points.append((y, x))  # row, col
                 print(f"Point selected: {x}, {y}")

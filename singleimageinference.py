@@ -8,9 +8,10 @@ import torch.backends.cudnn as cudnn
 import numpy as np
 import torchvision
 import models
-import datasets
 import utils
-from models import DenoisingDiffusion, DiffusiveRestoration
+from models import DenoisingDiffusion
+from inference.singleImageRestoration import SingleImageDiffusiveRestoration
+from inference.aistdshadowtest import AISTDShadowDataset
 
 
 def parse_args_and_config():
@@ -93,15 +94,22 @@ def parse_args_and_config():
     )
     parser.add_argument(
         "--prefix",
-        default=None,
+        default="test",
         type=str,
         help="name of folder to save the test images",
     )
+    parser.add_argument(
+        "--logimgpath",
+        default="/home/satviktyagi/Desktop/desk/project/datasets/des3_dataset/ISTD_pseduo_log/pseudolog/test/test_A",
+        type=str,
+        help="path to log images",
+    )
+
     parser.add_argument("--sid", type=str, default=None)
     args = parser.parse_args()
     print(args)
 
-    with open(os.path.join("configs", args.config), "r") as f:
+    with open(os.path.join("inference", args.config), "r") as f:
         config = yaml.safe_load(f)
     new_config = dict2namespace(config)
 
@@ -119,8 +127,26 @@ def dict2namespace(config):
     return namespace
 
 
+def set_guidance_type():
+    while True:
+        print(f"Choose guidance image type: input 1, 2, 3, 4")
+        print(f"1: RGB (shadow image)")
+        print(f"2: RGB (shadow image) concatenated with log gray ")
+        print(f"3: Log gray")
+        print(f"4: Reprojected RGB concatenated wit log gray")
+        guidance_type = input()
+        if guidance_type not in ["1", "2", "3", "4"]:
+            print("Please choose from: 1, 2, 3, 4")
+        else:
+            break
+    return guidance_type
+
+
 def main():
     args, config = parse_args_and_config()
+
+    guidance_type = set_guidance_type()
+    config.guidance_type = guidance_type
 
     # setup device to run
     device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
@@ -141,15 +167,21 @@ def main():
     torch.backends.cudnn.benchmark = True
 
     # data loading
-    print(f"Using dataset {config.data.dataset}")
-    DATASET = datasets.__dict__[config.data.dataset](args, config)
-    _, val_loader = DATASET.get_loaders(parse_patches=False, validation=args.test_set)
+    print(f"Testing using single image inference")
+    dataset = AISTDShadowDataset(args, config)
+    image_paths = dataset.populate_paths(random_shuffle=False)
 
     # create model
     print("Creating denoising-diffusion model with wrapper...")
     diffusion = DenoisingDiffusion(args, config, run="test")
-    model = DiffusiveRestoration(diffusion, args, config)
-    model.restore(val_loader, validation=args.test_set, r=args.grid_r, sid=args.sid)
+    model = SingleImageDiffusiveRestoration(diffusion, args, config)
+
+    index = dataset.generate_index()
+    while index is not None:
+        x, y = dataset.get_image(index)
+        x = x.unsqueeze(0)
+        model.restore(x, y, r=args.grid_r, sid=args.sid)
+        index = dataset.generate_index()
 
 
 if __name__ == "__main__":
