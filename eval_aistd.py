@@ -93,7 +93,7 @@ def parse_args_and_config():
     )
     parser.add_argument(
         "--prefix",
-        default=None,
+        default="test",
         type=str,
         help="name of folder to save the test images",
     )
@@ -119,8 +119,26 @@ def dict2namespace(config):
     return namespace
 
 
+def set_guidance_type():
+    while True:
+        print(f"Choose guidance image type: input 1, 2, 3, 4")
+        print(f"1: RGB (shadow image)")
+        print(f"2: RGB (shadow image) concatenated with log gray ")
+        print(f"3: Log gray")
+        print(f"4: Reprojected RGB concatenated wit log gray")
+        guidance_type = input()
+        if guidance_type not in ["1", "2", "3", "4"]:
+            print("Please choose from: 1, 2, 3, 4")
+        else:
+            break
+    return guidance_type
+
+
 def main():
     args, config = parse_args_and_config()
+
+    guidance_type = set_guidance_type()
+    config.guidance_type = guidance_type
 
     # setup device to run
     device = torch.device("cuda") if torch.cuda.is_available() else torch.device("cpu")
@@ -141,8 +159,8 @@ def main():
     torch.backends.cudnn.benchmark = True
 
     # data loading
-    print(f"Using dataset {config.data.dataset}")
-    DATASET = datasets.__dict__[config.data.dataset](args, config)
+    print(f"Using dataset AISTDShadowTest")
+    DATASET = datasets.__dict__["AISTDShadowTest"](args, config)
     _, val_loader = DATASET.get_loaders(parse_patches=False, validation=args.test_set)
 
     # create model

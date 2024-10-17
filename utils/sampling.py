@@ -52,7 +52,7 @@ def generalized_steps_overlapping(
         x0_preds = []
         xs = [x]
 
-        x_grid_mask = torch.zeros_like(x_cond, device=x.device)
+        x_grid_mask = torch.zeros_like(x, device=x.device)
         for hi, wi in corners:
             x_grid_mask[:, :, hi : hi + p_size, wi : wi + p_size] += 1
 
@@ -62,7 +62,7 @@ def generalized_steps_overlapping(
             at = compute_alpha(b, t.long())
             at_next = compute_alpha(b, next_t.long())
             xt = xs[-1].to("cuda")
-            et_output = torch.zeros_like(x_cond, device=x.device)
+            et_output = torch.zeros_like(x, device=x.device)
 
             if manual_batching:
                 manual_batching_size = 64

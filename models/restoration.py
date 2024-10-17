@@ -23,6 +23,10 @@ class DiffusiveRestoration:
         self.diffusion = diffusion
         self.input_type = self.args.input_type
 
+        guidance_type_to_channels = {"1": 6, "2": 7, "3": 4, "4": 7}
+        self.in_channels = guidance_type_to_channels[config.guidance_type]
+        self.slice_idx = self.in_channels - 3
+
         if os.path.isfile(args.resume):
             self.diffusion.load_ddm_ckpt(args.resume, ema=True)
             self.diffusion.model.eval()
@@ -122,10 +126,10 @@ class DiffusiveRestoration:
                     print(f"starting processing from image {y}")
 
                     x = x.flatten(start_dim=0, end_dim=1) if x.ndim == 5 else x  ##1
-                    x_cond = x[:, :3, :, :].to(self.diffusion.device)  ##2
-                    x_gt = x[:, 3:, :, :].to(self.diffusion.device)
+                    x_cond = x[:, : self.slice_idx, :, :].to(self.diffusion.device)  ##2
+                    x_gt = x[:, self.slice_idx :, :, :].to(self.diffusion.device)
                     # print('x_cond, x_gt = ',x_cond.shape, x_gt.shape) #[1, 3, 256, 256]
-                    x_output = self.diffusive_restoration(x_cond, r=r)  ##3
+                    x_output = self.diffusive_restoration(x_cond, x_gt.size(), r=r)  ##3
                     x_output = inverse_data_transform(x_output)  ##4
                     x_output = self.transform_output(x_output, x_cond)
 
@@ -145,13 +149,15 @@ class DiffusiveRestoration:
                         saveimg, os.path.join(image_folder, "in_out_gt", f"{frame}.png")
                     )
 
-    def diffusive_restoration(self, x_cond, r=None):
+    def diffusive_restoration(self, x_cond, size=None, r=None):
         p_size = self.config.data.image_size
         h_list, w_list = self.overlapping_grid_indices(x_cond, output_size=p_size, r=r)
         corners = [(i, j) for i in h_list for j in w_list]
         # random noise
-        x = torch.randn(x_cond.size(), device=self.diffusion.device)
-        # passing in random noise and shadow image as conditional
+        if size is None:
+            size = x_cond.size()
+        x = torch.randn(size, device=self.diffusion.device)
+        # passing in random noise as input and shadow image as conditional
         x_output = self.diffusion.sample_image(
             x_cond, x, patch_locs=corners, patch_size=p_size
         )
