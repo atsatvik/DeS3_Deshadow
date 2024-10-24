@@ -32,7 +32,7 @@ class AISTDShadow:
             patch_size=self.config.data.image_size,
             transforms=self.transforms,
             parse_patches=parse_patches,
-            folders=["train_A", "train_C", "train_B", "loggray"],
+            folders=["train_A", "train_C", "train_B", "loggray", "train_A_reproj"],
             label="train",
             input_type=self.args.input_type,
             use_class=self.args.use_class,
@@ -45,7 +45,7 @@ class AISTDShadow:
             patch_size=self.config.data.image_size,
             transforms=self.transforms,
             parse_patches=parse_patches,
-            folders=["test_A", "test_C", "test_B", "loggray"],
+            folders=["test_A", "test_C", "test_B", "loggray", "train_A_reproj"],
             label="test",
             input_type=self.args.input_type,
             use_class=self.args.use_class,
@@ -150,6 +150,17 @@ class AISTDShadowDataset(torch.utils.data.Dataset):
             loggray_paths = [loggray_paths[idx] for idx in indices]
             self.loggray_paths = loggray_paths
 
+        elif self.guidance_type == "5":
+            rgb_reproj_folder = folders[4]
+            rgb_reproj_names = [
+                f for f in os.listdir(rgb_reproj_folder) if f.split(".")[-1] in file_ext
+            ]
+            rgb_reproj_paths = [
+                os.path.join(rgb_reproj_folder, f) for f in rgb_reproj_names
+            ]
+            rgb_reproj_paths = [rgb_reproj_paths[idx] for idx in indices]
+            self.rgb_reproj_paths = rgb_reproj_paths
+
     @staticmethod
     def get_params(img, output_size, n):
         w, h = img.size
@@ -167,7 +178,7 @@ class AISTDShadowDataset(torch.utils.data.Dataset):
         for i in range(len(x)):
             new_crop = img.crop((y[i], x[i], y[i] + w, x[i] + h))
             crops.append(new_crop)
-        return tuple(crops)
+        return list(crops)
 
     def get_images(self, index):
         input_name = self.image_paths[index]
@@ -185,8 +196,8 @@ class AISTDShadowDataset(torch.utils.data.Dataset):
         if self.guidance_type in ["2", "3", "4"]:
             loggray_name = self.loggray_paths[index]
             loggray_img = np.array(PIL.Image.open(loggray_name))
-            input_img = np.array(input_img)
             if self.guidance_type == "2":
+                input_img = np.array(input_img)
                 input_img = PIL.Image.fromarray(
                     np.concatenate([input_img, loggray_img[:, :, np.newaxis]], axis=2)
                 )
@@ -198,6 +209,34 @@ class AISTDShadowDataset(torch.utils.data.Dataset):
             ht_new = 512
             input_img = input_img.resize((wd_new, ht_new), PIL.Image.ANTIALIAS)
             gt_img = gt_img.resize((wd_new, ht_new), PIL.Image.ANTIALIAS)
+
+            # rgb_reproj_name = self.rgb_reproj_paths[index]
+            # rgb_reproj = PIL.Image.open(rgb_reproj_name)
+            # rgb_reproj = rgb_reproj.resize((wd_new, ht_new), PIL.Image.ANTIALIAS)
+            # rgb_reproj = np.array(rgb_reproj).astype(np.float32)
+            # test_input_img = np.array(input_img).astype(np.float32)
+            # final_img = 0.3 * test_input_img + 0.5 * rgb_reproj
+
+            # loggray_img = PIL.Image.fromarray(loggray_img)
+            # loggray_img = loggray_img.resize((wd_new, ht_new), PIL.Image.ANTIALIAS)
+            # loggray_img = np.array(loggray_img).astype(np.float32)
+            # loggray_img = np.stack([loggray_img] * 3, axis=-1)
+
+            # test_input_img = np.array(input_img).astype(np.float32)
+            # final_img = 0.7 * test_input_img + 0.5 * loggray_img
+            # cv2.imshow(
+            #     "input_img",
+            #     cv2.cvtColor(
+            #         np.array(test_input_img).astype(np.uint8), cv2.COLOR_BGR2RGB
+            #     ),
+            # )
+            # cv2.imshow(
+            #     "final_img",
+            #     cv2.cvtColor(np.array(final_img).astype(np.uint8), cv2.COLOR_BGR2RGB),
+            # )
+            # cv2.waitKey(0)
+            # cv2.destroyAllWindows()
+            # exit()
 
             # print('-input_img.shape,gt_img.shape-',input_img.size,gt_img.size)
             i, j, h, w = self.get_params(
@@ -216,6 +255,38 @@ class AISTDShadowDataset(torch.utils.data.Dataset):
                 mask_img = self.n_random_crops(mask_img, i, j, h, w)
                 labels = self.prepare_labels(input_img, gt_img, mask_img)
 
+            if self.guidance_type == "4":
+                loggray_img = PIL.Image.fromarray(loggray_img)
+                loggray_img = loggray_img.resize((wd_new, ht_new), PIL.Image.ANTIALIAS)
+                log_gray_cropped = self.n_random_crops(loggray_img, i, j, h, w)
+                for i in range(self.n):
+                    img = np.array(input_img[i]).astype(np.float32)
+                    log_gray_img = np.array(log_gray_cropped[i]).astype(np.float32)
+                    log_gray_img = np.stack([log_gray_img] * 3, axis=-1)
+                    final_img = 0.7 * img + 0.5 * log_gray_img
+                    # Normalize the values to be in the range [0, 1]
+                    input_img[i] = final_img / 255
+                # print(np.min(input_img[0]))
+                # print(np.max(input_img[0]))
+                # print()
+                # exit()
+
+            if self.guidance_type == "5":
+                rgb_reproj_name = self.rgb_reproj_paths[index]
+                rgb_reproj = PIL.Image.open(rgb_reproj_name)
+                rgb_reproj = rgb_reproj.resize((wd_new, ht_new), PIL.Image.ANTIALIAS)
+                rgb_reproj_cropped = self.n_random_crops(rgb_reproj, i, j, h, w)
+                for i in range(self.n):
+                    img = np.array(input_img[i]).astype(np.float32)
+                    rgb_reproj_img = np.array(rgb_reproj_cropped[i]).astype(np.float32)
+                    final_img = 0.3 * img + 0.5 * rgb_reproj_img
+                    # Normalize the values to be in the range [0, 1]
+                    input_img[i] = final_img / 255
+                # print(np.min(input_img[0]))
+                # print(np.max(input_img[0]))
+                # print()
+                # exit()
+
             # self.counter += 1
             # exit()
             outputs = [
@@ -224,8 +295,9 @@ class AISTDShadowDataset(torch.utils.data.Dataset):
                     dim=0,
                 )
                 for i in range(self.n)
-            ]
-            # print("labels ", labels)
+            ]  ## range is from 0 to 1 here
+
+            # print("labels ", labels)input_channels
             return torch.stack(outputs, dim=0), img_id, labels
         else:
             wd_new = 256

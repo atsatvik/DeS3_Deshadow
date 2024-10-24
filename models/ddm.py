@@ -8,11 +8,13 @@ import torch.nn as nn
 import torch.utils.data as data
 import torch.backends.cudnn as cudnn
 import utils
+import torchvision
 from models.unet import ShadowDiffusionUNet
 from models.transformer2d import My_DiT_test
 from torch.utils.tensorboard import SummaryWriter
 import shutil
 import logging
+from losses_extra import VGGPerceptualLoss
 
 
 def data_transform(X):
@@ -105,20 +107,43 @@ def get_beta_schedule(beta_schedule, *, beta_start, beta_end, num_diffusion_time
     return betas
 
 
-def noise_estimation_loss(model, x0, t, e, b, labels, slice_idx):
+def noise_estimation_loss(model, x0, t, e, b, labels, slice_idx, vgg_loss_fn):
     a = (1 - b).cumprod(dim=0).index_select(0, t).view(-1, 1, 1, 1)
+    gt = x0[:, slice_idx:, :, :]  # Ground truth image
     x = (
-        x0[:, slice_idx:, :, :] * a.sqrt() + e * (1.0 - a).sqrt()
-    )  # adding noise to the GT
+        gt * a.sqrt() + e * (1.0 - a).sqrt()
+    )  # Adding noise to the GT to create the noisy image
 
     if len(labels) != 0:
         labels = labels.flatten(start_dim=0, end_dim=1)
         labels = labels[:, :1]
 
-    output = model(
+    # Forward pass: Model predicts the noise to be subtracted
+    predicted_noise = model(
         torch.cat([x0[:, :slice_idx, :, :], x], dim=1), t.float(), labels
-    )  # concatenating input img (shadow) to GT
-    return (e - output).square().sum(dim=(1, 2, 3)).mean(dim=0)
+    )
+
+    # Compute the diffusion loss (L2 loss on predicted noise)
+    diffusion_loss = (e - predicted_noise).square().sum(dim=(1, 2, 3)).mean(dim=0)
+
+    # Compute the VGG loss between the reconstructed image and the ground truth
+    perceptual_loss = 0
+    if vgg_loss_fn is not None:
+        # Create noisy image at t-1 using the same formula
+        t_prior = torch.clamp(t - 1, min=0)
+        a_prior = (1 - b).cumprod(dim=0).index_select(0, t_prior).view(-1, 1, 1, 1)
+        noisy_image_t_prior = gt * a_prior.sqrt() + e * (1.0 - a_prior).sqrt()
+
+        reconstructed_image = (x - predicted_noise) / a.sqrt()
+        perceptual_loss = vgg_loss_fn(
+            inverse_data_transform(reconstructed_image),
+            inverse_data_transform(noisy_image_t_prior),
+            feature_layers=[1],
+        )
+
+    # Combine both losses (with weight adjustment for perceptual loss)
+    total_loss = diffusion_loss + 0.5 * perceptual_loss
+    return total_loss
 
 
 class DenoisingDiffusion(object):
@@ -129,6 +154,10 @@ class DenoisingDiffusion(object):
         self.device = config.device
         self.logger = logging.getLogger(__name__)
         self.exp_log_dir = exp_log_dir
+        self.vgg_loss_fn = None
+        if self.config.use_VGG_loss:
+            self.logger.info("VGG initialized")
+            self.vgg_loss_fn = VGGPerceptualLoss().to(self.device)
 
         if self.args.use_class:
             num_classes = 2
@@ -137,7 +166,7 @@ class DenoisingDiffusion(object):
             num_classes = 4
             class_dropout_prob = 0.1
 
-        guidance_type_to_channels = {"1": 6, "2": 7, "3": 4, "4": 7}
+        guidance_type_to_channels = {"1": 6, "2": 7, "3": 4, "4": 6, "5": 6}
         self.in_channels = guidance_type_to_channels[config.guidance_type]
         self.slice_idx = self.in_channels - 3
 
@@ -227,13 +256,7 @@ class DenoisingDiffusion(object):
                 ).to(self.device)
                 t = torch.cat([t, self.num_timesteps - t - 1], dim=0)[:n]
                 loss = noise_estimation_loss(
-                    self.model,
-                    x,
-                    t,
-                    e,
-                    b,
-                    labels,
-                    self.slice_idx,
+                    self.model, x, t, e, b, labels, self.slice_idx, self.vgg_loss_fn
                 )
 
                 if self.step % 10 == 0:

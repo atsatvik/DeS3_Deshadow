@@ -59,14 +59,15 @@ def prepare_log_dir(args):
 
 def set_guidance_type(logger):
     while True:
-        logger.info(f"Choose guidance image type: input 1, 2, 3, 4")
+        logger.info(f"Choose guidance image type: input 1, 2, 3, 4, 5")
         logger.info(f"1: RGB (shadow image)")
         logger.info(f"2: RGB (shadow image) concatenated with log gray ")
         logger.info(f"3: Log gray")
-        logger.info(f"4: Reprojected RGB concatenated wit log gray")
+        logger.info(f"4: 0.7* RGB (shadow image) + 0.3*Log gray")
+        logger.info(f"5: 0.7* RGB (shadow image) + 0.3*Reprojected RGB")
         guidance_type = input()
-        if guidance_type not in ["1", "2", "3", "4"]:
-            logger.info("Please choose from: 1, 2, 3, 4")
+        if guidance_type not in ["1", "2", "3", "4", "5"]:
+            logger.info("Please choose from: 1, 2, 3, 4, 5")
         else:
             break
     return guidance_type
@@ -144,6 +145,12 @@ def parse_args_and_config():
         type=bool,
         help="Wether to use class embeddings or not",
     )
+    parser.add_argument(
+        "--use_VGG_loss",
+        default=False,
+        type=str,
+        help="flag to use VGG preceptual loss",
+    )
     args = parser.parse_args()
 
     with open(os.path.join("configs", args.config), "r") as f:
@@ -173,6 +180,8 @@ def main():
 
     guidance_type = set_guidance_type(logger)
     config.guidance_type = guidance_type
+    if args.use_VGG_loss:
+        config.use_VGG_loss = True
 
     logger.info(f"Saving log files to dir:{exp_log_dir}")
 
