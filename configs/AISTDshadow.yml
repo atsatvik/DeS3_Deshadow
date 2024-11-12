@@ -2,11 +2,12 @@ data:
     dataset: "AISTDShadow"
     image_size: 64
     channels: 3
-    num_workers: 8
+    num_workers: 1
     data_dir: "/home/satviktyagi/Desktop/desk/project/datasets/des3_dataset/ISTD_des3"
     conditional: True
 
 model:
+    model_type: "DiT" # ShadowDiff
     in_channels: 3
     out_ch: 3
     ch: 128
@@ -42,3 +43,17 @@ optim:
     lr: 0.00002
     amsgrad: False
     eps: 0.00000001
+
+misc:
+    input_type: "sf" # sf (shadow free img), sf/s (shadow free img / shadow img), sf-s (shadow free - shadow)
+    factor1: 0.4
+    factor2: 0.6
+    guidance_type: "2" # 1: RGB || 2: RGB & Loggray concat || 3: Loggray || 4: factor1 * RGB (shadow image) 
+                       # + factor2 * Log gray || 5: factor1 * RGB (shadow image) + factor2 *Reprojected RGB
+    use_class: False
+    num_last_weights: 3 # number of last weights to keep
+    save_every: 50 # 50 # Save Checkpoint after N Epochs
+    seed: 61 # Seed for initializing training (default: 61)
+    sampling_timesteps: 25 # "Number of implicit sampling steps for validation image patches"
+    apply_clahe: True # Apply CLAHE on log gray image
+

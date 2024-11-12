@@ -8,13 +8,13 @@ import torch.nn as nn
 import torch.utils.data as data
 import torch.backends.cudnn as cudnn
 import utils
+from utils.logging import save_image, save_checkpoint
 import torchvision
 from models.unet import ShadowDiffusionUNet
 from models.transformer2d import My_DiT_test
 from torch.utils.tensorboard import SummaryWriter
 import shutil
 import logging
-from losses_extra import VGGPerceptualLoss
 
 
 def data_transform(X):
@@ -107,7 +107,7 @@ def get_beta_schedule(beta_schedule, *, beta_start, beta_end, num_diffusion_time
     return betas
 
 
-def noise_estimation_loss(model, x0, t, e, b, labels, slice_idx, vgg_loss_fn):
+def noise_estimation_loss(model, x0, t, e, b, labels, slice_idx):
     a = (1 - b).cumprod(dim=0).index_select(0, t).view(-1, 1, 1, 1)
     gt = x0[:, slice_idx:, :, :]  # Ground truth image
     x = (
@@ -126,40 +126,19 @@ def noise_estimation_loss(model, x0, t, e, b, labels, slice_idx, vgg_loss_fn):
     # Compute the diffusion loss (L2 loss on predicted noise)
     diffusion_loss = (e - predicted_noise).square().sum(dim=(1, 2, 3)).mean(dim=0)
 
-    # Compute the VGG loss between the reconstructed image and the ground truth
-    perceptual_loss = 0
-    if vgg_loss_fn is not None:
-        # Create noisy image at t-1 using the same formula
-        t_prior = torch.clamp(t - 1, min=0)
-        a_prior = (1 - b).cumprod(dim=0).index_select(0, t_prior).view(-1, 1, 1, 1)
-        noisy_image_t_prior = gt * a_prior.sqrt() + e * (1.0 - a_prior).sqrt()
-
-        reconstructed_image = (x - predicted_noise) / a.sqrt()
-        perceptual_loss = vgg_loss_fn(
-            inverse_data_transform(reconstructed_image),
-            inverse_data_transform(noisy_image_t_prior),
-            feature_layers=[1],
-        )
-
-    # Combine both losses (with weight adjustment for perceptual loss)
-    total_loss = diffusion_loss + 0.5 * perceptual_loss
+    total_loss = diffusion_loss
     return total_loss
 
 
 class DenoisingDiffusion(object):
-    def __init__(self, args, config, exp_log_dir="", run=""):
+    def __init__(self, config):
         super().__init__()
-        self.args = args
         self.config = config
         self.device = config.device
         self.logger = logging.getLogger(__name__)
-        self.exp_log_dir = exp_log_dir
-        self.vgg_loss_fn = None
-        if self.config.use_VGG_loss:
-            self.logger.info("VGG initialized")
-            self.vgg_loss_fn = VGGPerceptualLoss().to(self.device)
+        self.exp_log_dir = self.config.log_dir
 
-        if self.args.use_class:
+        if self.config.misc.use_class:
             num_classes = 2
             class_dropout_prob = 0.0
         else:
@@ -167,12 +146,14 @@ class DenoisingDiffusion(object):
             class_dropout_prob = 0.1
 
         guidance_type_to_channels = {"1": 6, "2": 7, "3": 4, "4": 6, "5": 6}
-        self.in_channels = guidance_type_to_channels[config.guidance_type]
+        self.in_channels = guidance_type_to_channels[self.config.misc.guidance_type]
         self.slice_idx = self.in_channels - 3
 
-        self.logger.info(f"Using Input Image type {self.args.input_type}")
-        self.model = ShadowDiffusionUNet(config)
-        if self.args.test_set == "AISTD":
+        self.logger.info(f"Using Input Image type {self.config.misc.input_type}")
+        if self.config.model.model_type == "ShadowDiff":
+            self.model = ShadowDiffusionUNet(config)
+            self.logger.info("Using Diffusion model with U-net Backbone")
+        elif self.config.model.model_type == "DiT":
             self.logger.info("Using Diffusion model with Transformer Backbone")
             self.model = My_DiT_test(
                 input_size=config.data.image_size,
@@ -180,8 +161,6 @@ class DenoisingDiffusion(object):
                 num_classes=num_classes,
                 in_channels=self.in_channels,
             )
-        else:
-            self.logger.info("Using Diffusion model with U-net Backbone")
 
         self.model.to(self.device)
         self.model = torch.nn.DataParallel(self.model)
@@ -204,14 +183,10 @@ class DenoisingDiffusion(object):
         betas = self.betas = torch.from_numpy(betas).float().to(self.device)
         self.num_timesteps = betas.shape[0]
 
-        self.run = run
-        if "test" in self.run:
-            return
-
         self.writer = SummaryWriter(log_dir=self.exp_log_dir)
 
-        self.keep_last_weights = self.args.num_last_weights
-        self.save_after_epoch = self.args.save_after_epoch
+        self.keep_last_weights = self.config.misc.num_last_weights
+        self.save_every = self.config.misc.save_every
 
     def load_ddm_ckpt(self, load_path, ema=False):
         checkpoint = utils.logging.load_checkpoint(load_path, None)
@@ -226,12 +201,11 @@ class DenoisingDiffusion(object):
             f"Loaded checkpoint {load_path} (epoch {self.start_epoch}, step {self.step})"
         )
 
-    def train(self, DATASET):
+    def train(self, train_loader, val_loader):
         cudnn.benchmark = True
-        train_loader, val_loader = DATASET.get_loaders()
 
-        if os.path.isfile(self.args.resume):
-            self.load_ddm_ckpt(self.args.resume)
+        if os.path.isfile(self.config.resume):
+            self.load_ddm_ckpt(self.config.resume)
 
         for epoch in range(self.start_epoch, self.config.training.n_epochs):
             self.logger.info(f"epoch: {epoch}")
@@ -256,7 +230,7 @@ class DenoisingDiffusion(object):
                 ).to(self.device)
                 t = torch.cat([t, self.num_timesteps - t - 1], dim=0)[:n]
                 loss = noise_estimation_loss(
-                    self.model, x, t, e, b, labels, self.slice_idx, self.vgg_loss_fn
+                    self.model, x, t, e, b, labels, self.slice_idx
                 )
 
                 if self.step % 10 == 0:
@@ -272,39 +246,24 @@ class DenoisingDiffusion(object):
                 self.ema_helper.update(self.model)
                 data_start = time.time()
 
-            # if self.step % self.config.training.validation_freq == 0:
-            if epoch % self.save_after_epoch == 0 and epoch != 0:
+            if epoch % self.save_every == 0:
                 self.model.eval()
                 self.sample_validation_patches(val_loader, self.step)
 
-            if "test" in self.run:
-                continue
-
-            if (
-                # self.step % self.config.training.snapshot_freq == 0
-                (epoch % self.save_after_epoch == 0 and epoch != 0)
-                or self.step == 1
-            ):
                 save_path = os.path.join(
                     self.exp_log_dir,
                     f"epoch_{epoch + 1}_ddpm",
                 )
-                utils.logging.save_checkpoint(
+                save_checkpoint(
                     {
                         "epoch": epoch + 1,
                         "step": self.step,
                         "state_dict": self.model.state_dict(),
                         "optimizer": self.optimizer.state_dict(),
                         "ema_helper": self.ema_helper.state_dict(),
-                        "params": self.args,
-                        "config": self.config,
+                        "params": self.config,
                     },
                     filename=save_path,
-                    # filename=os.path.join(
-                    #     self.config.data.data_dir,
-                    #     "ckpts",
-                    #     self.config.data.dataset + "_ddpm",
-                    # ),
                 )
                 if self.keep_last_weights:
                     self.remove_extra_weight_files()
@@ -331,7 +290,7 @@ class DenoisingDiffusion(object):
     def sample_image(self, x_cond, x, last=True, patch_locs=None, patch_size=None):
         skip = (
             self.config.diffusion.num_diffusion_timesteps
-            // self.args.sampling_timesteps
+            // self.config.misc.sampling_timesteps
         )
         seq = range(0, self.config.diffusion.num_diffusion_timesteps, skip)
         if patch_locs is not None:
@@ -380,9 +339,7 @@ class DenoisingDiffusion(object):
             x_cond = inverse_data_transform(x_cond)
 
             for i in range(n):
-                utils.logging.save_image(
+                save_image(
                     x_cond[i], os.path.join(image_folder, str(step), f"{i}_cond.png")
                 )
-                utils.logging.save_image(
-                    x[i], os.path.join(image_folder, str(step), f"{i}.png")
-                )
+                save_image(x[i], os.path.join(image_folder, str(step), f"{i}.png"))

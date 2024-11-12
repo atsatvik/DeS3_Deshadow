@@ -10,46 +10,36 @@ import re
 import random
 import cv2
 import logging
+from utils import *
+
 
 file_ext = ["png", "jpg"]
 
 
 class AISTDShadow:
-    def __init__(self, args, config):
+    def __init__(self, config):
         self.config = config
-        self.args = args
         self.transforms = torchvision.transforms.Compose(
             [torchvision.transforms.ToTensor()]
         )
         self.logger = logging.getLogger(__name__)
-        self.guidance_type = self.config.guidance_type
 
     def get_loaders(self, parse_patches=True, validation="AISTD"):
         self.logger.info("Evaluating AISTD test set...")
         train_dataset = AISTDShadowDataset(
-            dir=os.path.join(self.config.data.data_dir),
-            n=self.config.training.patch_n,
-            patch_size=self.config.data.image_size,
+            self.config,
             transforms=self.transforms,
             parse_patches=parse_patches,
             folders=["train_A", "train_C", "train_B", "loggray", "train_A_reproj"],
             label="train",
-            input_type=self.args.input_type,
-            use_class=self.args.use_class,
-            guidance_type=self.guidance_type,
         )
 
         val_dataset = AISTDShadowDataset(
-            dir=os.path.join(self.config.data.data_dir),
-            n=self.config.training.patch_n,
-            patch_size=self.config.data.image_size,
+            self.config,
             transforms=self.transforms,
             parse_patches=parse_patches,
             folders=["test_A", "test_C", "test_B", "loggray", "train_A_reproj"],
             label="test",
-            input_type=self.args.input_type,
-            use_class=self.args.use_class,
-            guidance_type=self.guidance_type,
         )
 
         if not parse_patches:
@@ -77,89 +67,107 @@ class AISTDShadow:
 class AISTDShadowDataset(torch.utils.data.Dataset):
     def __init__(
         self,
-        dir,
-        patch_size,
-        n,
+        config,
         transforms,
         parse_patches=True,
         folders=[],
         label="",
-        input_type="sf",
-        use_class=False,
-        guidance_type="1",
     ):
+        self.config = config
+        self.populatefromConfig()
+
         self.mask_paths = None
         self.loggray_paths = None
-
-        self.guidance_type = guidance_type
-        if input_type not in ["sf/s", "sf-s", "sf"]:
-            raise Exception("Incorrect input_type choose from: <sf/s>, <sf-s>, <sf>")
+        self.rgb_reproj_paths = None
 
         self.counter = 0
-        self.input_type = input_type
-        self.use_class = use_class
         self.epsilon = 1e-8
         self.logger = logging.getLogger(__name__)
         super().__init__()
-        self.logger.info(f"Directory: {dir}")
+        self.logger.info(f"Directory: {self.directory}")
 
         if not folders:
             raise Exception("Incorrect or missing images and GT folders")
-        folders = [os.path.join(dir, label, f) for f in folders]
-        image_folder, GT_folder = (folders[0], folders[1])
+        folders = [os.path.join(self.directory, label, f) for f in folders]
 
-        img_names = [
-            f for f in os.listdir(image_folder) if f.split(".")[-1] in file_ext
-        ]
-        GT_names = [f for f in os.listdir(GT_folder) if f.split(".")[-1] in file_ext]
+        self.image_paths = self.getPaths(folders[0])
+        self.GT_paths = self.getPaths(folders[1])
 
-        # if not img_names == GT_names:
-        #     raise Exception("images and GT are inconsist")
+        self.checksanity(self.image_paths, self.GT_paths)
 
-        image_paths = [os.path.join(image_folder, f) for f in img_names]
-        GT_paths = [os.path.join(GT_folder, f) for f in GT_names]
-
-        x = list(enumerate(image_paths))
-        random.shuffle(x)
-        indices, image_paths = zip(*x)
-        GT_paths = [GT_paths[idx] for idx in indices]
-        self.dir = None
-
-        self.image_paths = image_paths
-        self.GT_paths = GT_paths
-        self.patch_size = patch_size
         self.transforms = transforms
-        self.n = n
         self.parse_patches = parse_patches
 
         if self.use_class:
-            mask_folder = folders[2]
-            mask_names = [
-                f for f in os.listdir(mask_folder) if f.split(".")[-1] in file_ext
-            ]
-            mask_paths = [os.path.join(mask_folder, f) for f in mask_names]
-            mask_paths = [mask_paths[idx] for idx in indices]
-            self.mask_paths = mask_paths
+            self.mask_paths = self.getPaths(folders[2])
 
         if self.guidance_type in ["2", "3", "4"]:
-            loggray_folder = folders[3]
-            loggray_names = [
-                f for f in os.listdir(loggray_folder) if f.split(".")[-1] in file_ext
-            ]
-            loggray_paths = [os.path.join(loggray_folder, f) for f in loggray_names]
-            loggray_paths = [loggray_paths[idx] for idx in indices]
-            self.loggray_paths = loggray_paths
+            self.loggray_paths = self.getPaths(folders[3])
 
         elif self.guidance_type == "5":
-            rgb_reproj_folder = folders[4]
-            rgb_reproj_names = [
-                f for f in os.listdir(rgb_reproj_folder) if f.split(".")[-1] in file_ext
-            ]
-            rgb_reproj_paths = [
-                os.path.join(rgb_reproj_folder, f) for f in rgb_reproj_names
-            ]
-            rgb_reproj_paths = [rgb_reproj_paths[idx] for idx in indices]
-            self.rgb_reproj_paths = rgb_reproj_paths
+            self.rgb_reproj_paths = self.getPaths(folders[4])
+
+    def getPaths(self, folder):
+        names = [f for f in os.listdir(folder) if f.split(".")[-1] in file_ext]
+        paths = [os.path.join(folder, f) for f in names]
+        paths.sort()
+        return paths
+
+    def populatefromConfig(self):
+        self.directory = os.path.join(self.config.data.data_dir)
+        self.n = self.config.training.patch_n
+        self.patch_size = self.config.data.image_size
+        self.input_type = self.config.misc.input_type
+        self.use_class = self.config.misc.use_class
+        self.guidance_type = self.config.misc.guidance_type
+
+    def checksanity(self, input_paths, target_paths):
+        if len(input_paths) != len(input_paths):
+            raise Exception("images and GT are inconsistent")
+        input_paths = set([os.path.basename(pth) for pth in input_paths])
+        target_paths = set([os.path.basename(pth) for pth in target_paths])
+        for name in input_paths:
+            if name not in target_paths:
+                raise Exception("images and GT are inconsistent")
+        self.logger.info("Input and GT folders are consistent")
+
+    def getInputBasedOnGuidance(self, input_img, index):
+        input_img = np.array(input_img, dtype=np.float32)
+        if self.loggray_paths is not None:
+            pth = self.loggray_paths[index]
+            loggray_img = cv2.imread(pth, cv2.IMREAD_UNCHANGED)
+            if self.config.misc.apply_clahe:
+                loggray_img = apply_clahe(loggray_img)
+            loggray_img = loggray_img.astype(np.float32)
+
+        if self.rgb_reproj_paths is not None:
+            pth = self.rgb_reproj_paths[index]
+            rgb_reproj = cv2.imread(pth, cv2.IMREAD_UNCHANGED).astype(np.float32)
+
+        if self.guidance_type == "2":
+            input_img = np.concatenate(
+                [input_img, loggray_img[:, :, np.newaxis]], axis=2
+            )
+        elif self.guidance_type == "3":
+            input_img = loggray_img
+        elif self.guidance_type == "4":
+            input_img = (
+                self.config.misc.factor1 * input_img
+                + self.config.misc.factor2 * loggray_img[:, :, np.newaxis]
+            )
+        elif self.guidance_type == "5":
+            input_img = (
+                self.config.misc.factor1 * input_img
+                + self.config.misc.factor2 * rgb_reproj
+            )
+        input_img = input_img.astype(np.uint8)
+        # cv2.imshow("input_img", input_img)
+        # cv2.imshow("loggray_img", loggray_img.astype(np.uint8))
+        # cv2.imshow("gt_img", np.array(self.gt_img))
+        # cv2.waitKey(0)
+        # cv2.destroyAllWindows()
+        input_img = PIL.Image.fromarray(input_img)
+        return input_img
 
     @staticmethod
     def get_params(img, output_size, n):
@@ -193,16 +201,7 @@ class AISTDShadowDataset(torch.utils.data.Dataset):
         input_img = PIL.Image.open(input_name)
         gt_img = PIL.Image.open(gt_name)
 
-        if self.guidance_type in ["2", "3", "4"]:
-            loggray_name = self.loggray_paths[index]
-            loggray_img = np.array(PIL.Image.open(loggray_name))
-            if self.guidance_type == "2":
-                input_img = np.array(input_img)
-                input_img = PIL.Image.fromarray(
-                    np.concatenate([input_img, loggray_img[:, :, np.newaxis]], axis=2)
-                )
-            elif self.guidance_type == "3":
-                input_img = PIL.Image.fromarray(loggray_img)
+        input_img = self.getInputBasedOnGuidance(input_img, index)
 
         if self.parse_patches:
             wd_new = 512
@@ -210,35 +209,6 @@ class AISTDShadowDataset(torch.utils.data.Dataset):
             input_img = input_img.resize((wd_new, ht_new), PIL.Image.ANTIALIAS)
             gt_img = gt_img.resize((wd_new, ht_new), PIL.Image.ANTIALIAS)
 
-            # rgb_reproj_name = self.rgb_reproj_paths[index]
-            # rgb_reproj = PIL.Image.open(rgb_reproj_name)
-            # rgb_reproj = rgb_reproj.resize((wd_new, ht_new), PIL.Image.ANTIALIAS)
-            # rgb_reproj = np.array(rgb_reproj).astype(np.float32)
-            # test_input_img = np.array(input_img).astype(np.float32)
-            # final_img = 0.3 * test_input_img + 0.5 * rgb_reproj
-
-            # loggray_img = PIL.Image.fromarray(loggray_img)
-            # loggray_img = loggray_img.resize((wd_new, ht_new), PIL.Image.ANTIALIAS)
-            # loggray_img = np.array(loggray_img).astype(np.float32)
-            # loggray_img = np.stack([loggray_img] * 3, axis=-1)
-
-            # test_input_img = np.array(input_img).astype(np.float32)
-            # final_img = 0.7 * test_input_img + 0.5 * loggray_img
-            # cv2.imshow(
-            #     "input_img",
-            #     cv2.cvtColor(
-            #         np.array(test_input_img).astype(np.uint8), cv2.COLOR_BGR2RGB
-            #     ),
-            # )
-            # cv2.imshow(
-            #     "final_img",
-            #     cv2.cvtColor(np.array(final_img).astype(np.uint8), cv2.COLOR_BGR2RGB),
-            # )
-            # cv2.waitKey(0)
-            # cv2.destroyAllWindows()
-            # exit()
-
-            # print('-input_img.shape,gt_img.shape-',input_img.size,gt_img.size)
             i, j, h, w = self.get_params(
                 input_img, (self.patch_size, self.patch_size), self.n
             )
@@ -254,38 +224,6 @@ class AISTDShadowDataset(torch.utils.data.Dataset):
                 mask_img = mask_img.resize((wd_new, ht_new), PIL.Image.ANTIALIAS)
                 mask_img = self.n_random_crops(mask_img, i, j, h, w)
                 labels = self.prepare_labels(input_img, gt_img, mask_img)
-
-            if self.guidance_type == "4":
-                loggray_img = PIL.Image.fromarray(loggray_img)
-                loggray_img = loggray_img.resize((wd_new, ht_new), PIL.Image.ANTIALIAS)
-                log_gray_cropped = self.n_random_crops(loggray_img, i, j, h, w)
-                for i in range(self.n):
-                    img = np.array(input_img[i]).astype(np.float32)
-                    log_gray_img = np.array(log_gray_cropped[i]).astype(np.float32)
-                    log_gray_img = np.stack([log_gray_img] * 3, axis=-1)
-                    final_img = 0.7 * img + 0.5 * log_gray_img
-                    # Normalize the values to be in the range [0, 1]
-                    input_img[i] = final_img / 255
-                # print(np.min(input_img[0]))
-                # print(np.max(input_img[0]))
-                # print()
-                # exit()
-
-            if self.guidance_type == "5":
-                rgb_reproj_name = self.rgb_reproj_paths[index]
-                rgb_reproj = PIL.Image.open(rgb_reproj_name)
-                rgb_reproj = rgb_reproj.resize((wd_new, ht_new), PIL.Image.ANTIALIAS)
-                rgb_reproj_cropped = self.n_random_crops(rgb_reproj, i, j, h, w)
-                for i in range(self.n):
-                    img = np.array(input_img[i]).astype(np.float32)
-                    rgb_reproj_img = np.array(rgb_reproj_cropped[i]).astype(np.float32)
-                    final_img = 0.3 * img + 0.5 * rgb_reproj_img
-                    # Normalize the values to be in the range [0, 1]
-                    input_img[i] = final_img / 255
-                # print(np.min(input_img[0]))
-                # print(np.max(input_img[0]))
-                # print()
-                # exit()
 
             # self.counter += 1
             # exit()
@@ -311,41 +249,8 @@ class AISTDShadowDataset(torch.utils.data.Dataset):
                 img_id,
             )
 
-    def calculate_mse(self, image1, image2):
-        img1 = np.array(image1)
-        img2 = np.array(image2)
-        return np.mean((img1 - img2) ** 2)
-
-    def save_debug_img(self, img, imgname):
-        img.save(
-            f"/home/satviktyagi/Desktop/desk/project/github/DeS3_Deshadow/debug_imgs/{imgname}"
-        )
-
-    def show_img(self, img, name="img", destroy=False):
-        if not isinstance(img, np.ndarray):
-            img = np.array(img)
-        cv2.imshow(name, img)
-        cv2.waitKey(0)
-        if destroy:
-            cv2.destroyAllWindows()
-
     def prepare_labels(self, input_img, gt_img, mask_img):
         labels = []
-        # for i, (img_ip, img_gt) in enumerate(zip(input_img, gt_img)):
-        #     ###DEBUG########################################
-        #     # imgname_ip = f"{self.counter}_{i}_ip.png"
-        #     # imgname_gt = f"{self.counter}_{i}_gt.png"
-        #     # self.save_debug_img(img_ip, imgname_ip)
-        #     # self.save_debug_img(img_gt, imgname_gt)
-        #     ###DEBUG########################################
-        #     gt_lb = 0
-        #     if (
-        #         self.calculate_mse(img_ip, img_gt) < 20
-        #     ):  # DEAL WITH THIS MAGIC NUMBER IF YOU USE LABEL EMBEDDING
-        #         ip_lb = 0
-        #     else:
-        #         ip_lb = 1
-        #     labels.append((ip_lb, gt_lb))
         for i, (img_mask) in enumerate(mask_img):
             if np.any(np.array(img_mask) > 0):
                 ip_lb = 1
