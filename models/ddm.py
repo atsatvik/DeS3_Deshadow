@@ -8,7 +8,7 @@ import torch.nn as nn
 import torch.utils.data as data
 import torch.backends.cudnn as cudnn
 import utils
-from utils.logging import save_image, save_checkpoint
+from utils.logging import save_image, save_checkpoint, load_checkpoint
 import torchvision
 from models.unet import ShadowDiffusionUNet
 from models.transformer2d import My_DiT_test
@@ -189,7 +189,7 @@ class DenoisingDiffusion(object):
         self.save_every = self.config.misc.save_every
 
     def load_ddm_ckpt(self, load_path, ema=False):
-        checkpoint = utils.logging.load_checkpoint(load_path, None)
+        checkpoint = load_checkpoint(load_path, None)
         self.start_epoch = checkpoint["epoch"]
         self.step = checkpoint["step"]
         self.model.load_state_dict(checkpoint["state_dict"], strict=True)
