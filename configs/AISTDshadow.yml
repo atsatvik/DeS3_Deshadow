@@ -51,9 +51,10 @@ misc:
     guidance_type: "2" # 1: RGB || 2: RGB & Loggray concat || 3: Loggray || 4: factor1 * RGB (shadow image) 
                        # + factor2 * Log gray || 5: factor1 * RGB (shadow image) + factor2 *Reprojected RGB
     use_class: False
-    num_last_weights: 3 # number of last weights to keep
-    save_every: 50 # 50 # Save Checkpoint after N Epochs
-    seed: 61 # Seed for initializing training (default: 61)
+    num_last_weights: 1 # number of last weights to keep
+    save_every: 25 # 50 # Save Checkpoint after N Epochs
+    seed: 60 # Seed for initializing training (default: 61)
     sampling_timesteps: 25 # "Number of implicit sampling steps for validation image patches"
     apply_clahe: True # Apply CLAHE on log gray image
+    grid_r: 16
 

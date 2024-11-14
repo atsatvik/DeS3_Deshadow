@@ -56,7 +56,7 @@ class AISTDShadow:
         val_loader = torch.utils.data.DataLoader(
             val_dataset,
             batch_size=self.config.sampling.batch_size,
-            shuffle=False,
+            shuffle=True,
             num_workers=self.config.data.num_workers,
             pin_memory=True,
         )

@@ -5,6 +5,7 @@ import torchvision
 import os
 import numpy as np
 import cv2
+from utils.logging import save_image
 
 
 def data_transform(X):
@@ -16,19 +17,18 @@ def inverse_data_transform(X):
 
 
 class DiffusiveRestoration:
-    def __init__(self, diffusion, args, config):
+    def __init__(self, diffusion, config):
         super(DiffusiveRestoration, self).__init__()
-        self.args = args
         self.config = config
         self.diffusion = diffusion
-        self.input_type = self.args.input_type
+        self.input_type = self.config.misc.input_type
 
-        guidance_type_to_channels = {"1": 6, "2": 7, "3": 4, "4": 7}
-        self.in_channels = guidance_type_to_channels[config.guidance_type]
+        guidance_type_to_channels = {"1": 6, "2": 7, "3": 4, "4": 6, "5": 6}
+        self.in_channels = guidance_type_to_channels[config.misc.guidance_type]
         self.slice_idx = self.in_channels - 3
 
-        if os.path.isfile(args.resume):
-            self.diffusion.load_ddm_ckpt(args.resume, ema=True)
+        if os.path.isfile(self.config.resume):
+            self.diffusion.load_ddm_ckpt(self.config.resume, ema=True)
             self.diffusion.model.eval()
         else:
             print("Pre-trained diffusion model path is missing!")
@@ -44,12 +44,7 @@ class DiffusiveRestoration:
         return output
 
     def restore(self, val_loader, validation="snow", r=None, sid=None):
-        image_folder = os.path.join(
-            self.args.image_folder,
-            self.config.data.dataset,
-            self.args.prefix,
-            validation,
-        )
+        image_folder = self.config.log_dir
         print(f"Saving images to path {image_folder}")
 
         with torch.no_grad():
@@ -72,52 +67,21 @@ class DiffusiveRestoration:
 
                         x_output = self.diffusive_restoration(x_cond, r=r)  ##3
                         x_output = inverse_data_transform(x_output)  ##4
-                        utils.logging.save_image(
-                            x_cond,
-                            os.path.join(
-                                "results/",
-                                validation,
-                                datasetname,
-                                "input",
-                                sid,
-                                f"{frame}.png",
-                            ),
+                        save_image(
+                            x_cond, os.path.join(image_folder, f"{frame}_in.png")
                         )
-                        utils.logging.save_image(
-                            x_output,
-                            os.path.join(
-                                "results/",
-                                validation,
-                                datasetname,
-                                "output",
-                                sid,
-                                f"{frame}.png",
-                            ),
+                        save_image(
+                            x_output, os.path.join(image_folder, f"{frame}_out.png")
                         )
-                        utils.logging.save_image(
-                            x_gt,
-                            os.path.join(
-                                "results/",
-                                validation,
-                                datasetname,
-                                "gt",
-                                sid,
-                                f"{frame}.png",
-                            ),
+                        save_image(
+                            x_gt, os.path.join(image_folder, f"{frame}_gt.png")
                         )  ##yy
                         x_output = x_output.to(self.diffusion.device)  ##yy
                         x_gt = x_gt.to(self.diffusion.device)  ##yy
                         saveimg = torch.cat((x_cond, x_output, x_gt), dim=3)  ##yy
-                        utils.logging.save_image(
+                        save_image(
                             saveimg,
-                            os.path.join(
-                                "results/",
-                                validation,
-                                datasetname,
-                                "in_out_gt",
-                                sid,
-                                f"{frame}_3.png",
-                            ),
+                            os.path.join(image_folder, f"{frame}_in_out_gt.png"),
                         )  ##yy
                 else:
                     print(i, y)
@@ -133,19 +97,24 @@ class DiffusiveRestoration:
                     x_output = inverse_data_transform(x_output)  ##4
                     x_output = self.transform_output(x_output, x_cond)
 
-                    utils.logging.save_image(
+                    save_image(
                         x_cond, os.path.join(image_folder, "input", f"{frame}.png")
                     )
-                    utils.logging.save_image(
+                    save_image(
                         x_output, os.path.join(image_folder, "output", f"{frame}.png")
                     )
-                    utils.logging.save_image(
-                        x_gt, os.path.join(image_folder, "gt", f"{frame}.png")
-                    )
+                    save_image(x_gt, os.path.join(image_folder, "gt", f"{frame}.png"))
                     x_output = x_output.to(self.diffusion.device)
                     x_gt = x_gt.to(self.diffusion.device)
-                    saveimg = torch.cat((x_cond, x_output, x_gt), dim=3)
-                    utils.logging.save_image(
+
+                    if self.config.misc.guidance_type in ["1", "4", "5"]:
+                        saveimg = torch.cat((x_cond, x_output, x_gt), dim=3)
+                    else:
+                        saveimg = getSaveImg(
+                            x_cond, x_output, x_gt, self.config, self.slice_idx
+                        )
+
+                    save_image(
                         saveimg, os.path.join(image_folder, "in_out_gt", f"{frame}.png")
                     )
 
@@ -169,3 +138,16 @@ class DiffusiveRestoration:
         h_list = [i for i in range(0, h - output_size + 1, r)]
         w_list = [i for i in range(0, w - output_size + 1, r)]
         return h_list, w_list
+
+
+def getSaveImg(x_cond, x_output, x_gt, config, slice_idx):
+    if config.misc.guidance_type == "2":
+        x_gray = x_cond[:, slice_idx - 1, :, :]
+        x_gray = x_gray.expand(x_gray.shape[0], 3, x_gray.shape[1], x_gray.shape[2])
+        x_cond = x_cond[:, : slice_idx - 1, :, :]
+        saveimg = torch.cat((x_cond, x_gray, x_output, x_gt), dim=3)
+    elif config.misc.guidance_type == "3":
+        x_gray = x_cond[:, slice_idx - 1, :, :]
+        x_gray = x_gray.expand(x_gray.shape[0], 3, x_gray.shape[1], x_gray.shape[2])
+        saveimg = torch.cat((x_gray, x_output, x_gt), dim=3)
+    return saveimg
