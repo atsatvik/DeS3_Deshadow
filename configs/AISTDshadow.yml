@@ -3,7 +3,7 @@ data:
     image_size: 64
     channels: 3
     num_workers: 1
-    data_dir: "/home/satviktyagi/Desktop/desk/project/datasets/des3_dataset/ISTD_des3"
+    data_dir: "/home/satviktyagi/Desktop/desk/project/datasets/main_data/"
     conditional: True
 
 model:

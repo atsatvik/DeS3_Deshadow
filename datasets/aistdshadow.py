@@ -14,6 +14,7 @@ from utils import *
 
 
 file_ext = ["png", "jpg"]
+os.environ["OPENCV_IO_ENABLE_OPENEXR"] = "1"
 
 
 class AISTDShadow:
@@ -30,7 +31,6 @@ class AISTDShadow:
             self.config,
             transforms=self.transforms,
             parse_patches=parse_patches,
-            folders=["train_A", "train_C", "train_B", "loggray", "train_A_reproj"],
             label="train",
         )
 
@@ -38,7 +38,6 @@ class AISTDShadow:
             self.config,
             transforms=self.transforms,
             parse_patches=parse_patches,
-            folders=["test_A", "test_C", "test_B", "loggray", "train_A_reproj"],
             label="test",
         )
 
@@ -70,9 +69,9 @@ class AISTDShadowDataset(torch.utils.data.Dataset):
         config,
         transforms,
         parse_patches=True,
-        folders=[],
         label="",
     ):
+        self.label = label
         self.config = config
         self.populatefromConfig()
 
@@ -86,32 +85,22 @@ class AISTDShadowDataset(torch.utils.data.Dataset):
         super().__init__()
         self.logger.info(f"Directory: {self.directory}")
 
-        if not folders:
-            raise Exception("Incorrect or missing images and GT folders")
-        folders = [os.path.join(self.directory, label, f) for f in folders]
+        imgpath = os.path.join(self.directory, "rgb_data/" + label + "/input")
+        gtpath = os.path.join(self.directory, "rgb_data/" + label + "/gt")
 
-        self.image_paths = self.getPaths(folders[0])
-        self.GT_paths = self.getPaths(folders[1])
+        self.image_paths = getPaths(imgpath)
+        self.GT_paths = getPaths(gtpath)
 
-        self.checksanity(self.image_paths, self.GT_paths)
+        checksanity(self.image_paths, self.GT_paths, self.logger)
 
         self.transforms = transforms
         self.parse_patches = parse_patches
 
-        if self.use_class:
-            self.mask_paths = self.getPaths(folders[2])
+        # if self.use_class:
+        #     # self.mask_paths = getPaths(folders[2])
+        #     exit()
 
-        if self.guidance_type in ["2", "3", "4"]:
-            self.loggray_paths = self.getPaths(folders[3])
-
-        elif self.guidance_type == "5":
-            self.rgb_reproj_paths = self.getPaths(folders[4])
-
-    def getPaths(self, folder):
-        names = [f for f in os.listdir(folder) if f.split(".")[-1] in file_ext]
-        paths = [os.path.join(folder, f) for f in names]
-        paths.sort()
-        return paths
+        self.data_dict = parse_file(self.ISD_file_path)
 
     def populatefromConfig(self):
         self.directory = os.path.join(self.config.data.data_dir)
@@ -120,29 +109,22 @@ class AISTDShadowDataset(torch.utils.data.Dataset):
         self.input_type = self.config.misc.input_type
         self.use_class = self.config.misc.use_class
         self.guidance_type = self.config.misc.guidance_type
+        self.ISD_file_path = os.path.join(
+            self.config.data.data_dir, f"ISD_vec_{self.label}.txt"
+        )
+        self.apply_clahe = self.config.misc.apply_clahe
+        self.factor1 = self.config.misc.factor1
+        self.factor2 = self.config.misc.factor2
 
-    def checksanity(self, input_paths, target_paths):
-        if len(input_paths) != len(input_paths):
-            raise Exception("images and GT are inconsistent")
-        input_paths = set([os.path.basename(pth) for pth in input_paths])
-        target_paths = set([os.path.basename(pth) for pth in target_paths])
-        for name in input_paths:
-            if name not in target_paths:
-                raise Exception("images and GT are inconsistent")
-        self.logger.info("Input and GT folders are consistent")
-
-    def getInputBasedOnGuidance(self, input_img, index):
+    def getInputBasedOnGuidance(self, input_img, input_name, guidance_type):
         input_img = np.array(input_img, dtype=np.float32)
-        if self.loggray_paths is not None:
-            pth = self.loggray_paths[index]
-            loggray_img = cv2.imread(pth, cv2.IMREAD_UNCHANGED)
-            if self.config.misc.apply_clahe:
-                loggray_img = apply_clahe(loggray_img)
-            loggray_img = loggray_img.astype(np.float32)
 
-        if self.rgb_reproj_paths is not None:
-            pth = self.rgb_reproj_paths[index]
-            rgb_reproj = cv2.imread(pth, cv2.IMREAD_UNCHANGED).astype(np.float32)
+        if guidance_type in ["2", "3", "4"]:
+            logpth = input_name.replace("rgb_data", "log_data")
+            logpth = logpth.replace(".png", ".exr")
+            log_image = cv2.imread(logpth, cv2.IMREAD_UNCHANGED)
+            input_name = os.path.basename(logpth).split(".")[0]
+            loggray_img = fetchGrayImg(log_image, self.data_dict[input_name])
 
         if self.guidance_type == "2":
             input_img = np.concatenate(
@@ -152,18 +134,12 @@ class AISTDShadowDataset(torch.utils.data.Dataset):
             input_img = loggray_img
         elif self.guidance_type == "4":
             input_img = (
-                self.config.misc.factor1 * input_img
-                + self.config.misc.factor2 * loggray_img[:, :, np.newaxis]
-            )
-        elif self.guidance_type == "5":
-            input_img = (
-                self.config.misc.factor1 * input_img
-                + self.config.misc.factor2 * rgb_reproj
+                self.factor1 * input_img + self.factor2 * loggray_img[:, :, np.newaxis]
             )
         input_img = input_img.astype(np.uint8)
         # cv2.imshow("input_img", input_img)
         # cv2.imshow("loggray_img", loggray_img.astype(np.uint8))
-        # cv2.imshow("gt_img", np.array(self.gt_img))
+        # # cv2.imshow("gt_img", np.array(self.gt_img))
         # cv2.waitKey(0)
         # cv2.destroyAllWindows()
         input_img = PIL.Image.fromarray(input_img)
@@ -201,7 +177,9 @@ class AISTDShadowDataset(torch.utils.data.Dataset):
         input_img = PIL.Image.open(input_name)
         gt_img = PIL.Image.open(gt_name)
 
-        input_img = self.getInputBasedOnGuidance(input_img, index)
+        input_img = self.getInputBasedOnGuidance(
+            input_img, input_name, self.guidance_type
+        )
 
         if self.parse_patches:
             wd_new = 512
