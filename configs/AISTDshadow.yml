@@ -48,8 +48,8 @@ misc:
     input_type: "sf" # sf (shadow free img), sf/s (shadow free img / shadow img), sf-s (shadow free - shadow)
     factor1: 0.4
     factor2: 0.6
-    guidance_type: "2" # 1: RGB || 2: RGB & Loggray concat || 3: Loggray || 4: factor1 * RGB (shadow image) 
-                       # + factor2 * Log gray || 5: factor1 * RGB (shadow image) + factor2 *Reprojected RGB
+    guidance_type: "5" # 1: RGB || 2: RGB & Loggray concat || 3: Loggray || 4: factor1 * RGB (shadow image) 
+                       # + factor2 * Log gray || 5: Reprojected RGB Image
     use_class: False
     num_last_weights: 1 # number of last weights to keep
     save_every: 25 # 50 # Save Checkpoint after N Epochs
@@ -57,4 +57,6 @@ misc:
     sampling_timesteps: 25 # "Number of implicit sampling steps for validation image patches"
     apply_clahe: True # Apply CLAHE on log gray image
     grid_r: 16
+    intensity_base_path: "/home/satviktyagi/Desktop/desk/project/datasets/main_data/intensity_maps/"
+    intensity_map_type: "intensity_maps_ISD"
 

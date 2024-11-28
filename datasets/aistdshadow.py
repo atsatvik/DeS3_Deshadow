@@ -118,30 +118,36 @@ class AISTDShadowDataset(torch.utils.data.Dataset):
 
     def getInputBasedOnGuidance(self, input_img, input_name, guidance_type):
         input_img = np.array(input_img, dtype=np.float32)
+        logpth = input_name.replace("rgb_data", "log_data")
+        logpth = logpth.replace(".png", ".exr")
+        log_image = cv2.imread(logpth, cv2.IMREAD_UNCHANGED)
+        input_name = os.path.basename(logpth).split(".")[0]
 
         if guidance_type in ["2", "3", "4"]:
-            logpth = input_name.replace("rgb_data", "log_data")
-            logpth = logpth.replace(".png", ".exr")
-            log_image = cv2.imread(logpth, cv2.IMREAD_UNCHANGED)
-            input_name = os.path.basename(logpth).split(".")[0]
             loggray_img = fetchGrayImg(log_image, self.data_dict[input_name])
+            if self.guidance_type == "2":
+                input_img = np.concatenate(
+                    [input_img, loggray_img[:, :, np.newaxis]], axis=2
+                )
+            elif self.guidance_type == "3":
+                input_img = loggray_img
+            elif self.guidance_type == "4":
+                input_img = (
+                    self.factor1 * input_img
+                    + self.factor2 * loggray_img[:, :, np.newaxis]
+                )
 
-        if self.guidance_type == "2":
-            input_img = np.concatenate(
-                [input_img, loggray_img[:, :, np.newaxis]], axis=2
+        elif guidance_type == "5":
+            input_img = fetchReprojectedColorImg(
+                log_image, self.data_dict[input_name], input_name, self.config
             )
-        elif self.guidance_type == "3":
-            input_img = loggray_img
-        elif self.guidance_type == "4":
-            input_img = (
-                self.factor1 * input_img + self.factor2 * loggray_img[:, :, np.newaxis]
-            )
+
         input_img = input_img.astype(np.uint8)
         # cv2.imshow("input_img", input_img)
         # cv2.imshow("loggray_img", loggray_img.astype(np.uint8))
-        # # cv2.imshow("gt_img", np.array(self.gt_img))
-        # cv2.waitKey(0)
-        # cv2.destroyAllWindows()
+        # cv2.imshow("gt_img", np.array(self.gt_img))
+        cv2.waitKey(0)
+        cv2.destroyAllWindows()
         input_img = PIL.Image.fromarray(input_img)
         return input_img
 

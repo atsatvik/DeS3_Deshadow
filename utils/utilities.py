@@ -202,10 +202,10 @@ def getXYmap(log_img, ISD):
     return projected_pts.reshape((log_img.shape[0], log_img.shape[1], 2))
 
 
-def normalize(xymap):
-    min_val = np.min(xymap, axis=(0, 1), keepdims=True)
-    max_val = np.max(xymap, axis=(0, 1), keepdims=True)
-    norm_img = ((xymap - min_val) / (max_val - min_val + 1e-8)).astype(np.float32)
+def normalize(image):
+    min_val = np.min(image, axis=(0, 1), keepdims=True)
+    max_val = np.max(image, axis=(0, 1), keepdims=True)
+    norm_img = ((image - min_val) / (max_val - min_val + 1e-8)).astype(np.float32)
     norm_img = np.clip(norm_img, a_min=0, a_max=1)
     return norm_img
 
@@ -217,11 +217,92 @@ def fetchGrayImg(log_img, points):
     ]
     ISD_vec = lit_shadow_pts[0] - lit_shadow_pts[1]
 
-    a, b, c, d = getPlane(ISD_vec, lit_shadow_pts[0])
-    transformation_matrix, new_plane = estimate3DTransformationMat(a, b, c, d)
-    ISD_vec_transformed = new_plane[:3]
-
-    log_img_transformed = transform3DPoints(log_img, transformation_matrix)
-    xymap = getXYmap(log_img_transformed, ISD_vec_transformed)
+    xymap = getXYmap(log_img, ISD_vec)
     xymap = normalize(xymap) * 255
     return np.mean(xymap, axis=2).astype(np.float32)
+
+
+def moveptswithlimit(pts_proj, plane, arr, type_arr):
+    idxs = np.where(arr > 255)
+    if type_arr == "x":
+        distances = (pts_proj[idxs, 0] - 255) / plane[0]
+    elif type_arr == "y":
+        distances = (pts_proj[idxs, 1] - 255) / plane[1]
+    else:
+        distances = (pts_proj[idxs, 2] - 255) / plane[2]
+    vec = plane[:3]
+    pts_proj[idxs] = pts_proj[idxs] - distances.T * vec
+    return pts_proj
+
+
+def get3DpointsOnPlane(points, a, b, c, d):
+    # Normalize the normal vector
+    normal_magnitude = np.sqrt(a**2 + b**2 + c**2)
+    a, b, c = a / normal_magnitude, b / normal_magnitude, c / normal_magnitude
+    d /= normal_magnitude
+
+    # Convert points to a NumPy array for vectorized operations
+    points = np.array(points)
+    x1, y1, z1 = points[:, 0], points[:, 1], points[:, 2]
+
+    # Calculate the distance from the plane for each point
+    distances = a * x1 + b * y1 + c * z1 + d
+
+    # Calculate the projected points
+    x_proj = x1 - distances * a
+    y_proj = y1 - distances * b
+    z_proj = z1 - distances * c
+
+    # Combine projected coordinates
+    projected_points = np.vstack((x_proj, y_proj, z_proj)).T
+    projected_points = moveptswithlimit(projected_points, [a, b, c, d], x_proj, "x")
+    projected_points = moveptswithlimit(projected_points, [a, b, c, d], y_proj, "y")
+    projected_points = moveptswithlimit(projected_points, [a, b, c, d], z_proj, "z")
+
+    return projected_points
+
+
+def combineChromaAndIntensity(rgb_img, gray_image, clahe=False):
+    rgb_img = rgb_img.astype(np.uint8)
+
+    bgr_img = cv2.cvtColor(rgb_img, cv2.COLOR_RGB2BGR)
+
+    lab = cv2.cvtColor(bgr_img, cv2.COLOR_BGR2LAB)
+    lab_planes = list(cv2.split(lab))
+
+    if clahe:
+        gray_image = apply_clahe(gray_image)
+
+    lab_planes[0] = gray_image
+    lab = cv2.merge(lab_planes)
+    rgb_img_final = cv2.cvtColor(lab, cv2.COLOR_LAB2RGB)
+
+    return rgb_img_final
+
+
+def fetchReprojectedColorImg(log_img, points, imname, config):
+    log_img = normalize(log_img) * 255
+
+    lit_shadow_pts = [
+        log_img[points[-2][0], points[-2][1], :],
+        log_img[points[-1][0], points[-1][1], :],
+    ]
+    ISD_vec = lit_shadow_pts[0] - lit_shadow_pts[1]
+
+    # intensity_map = getXYmap(log_img, ISD_vec)
+    # intensity_map = np.mean(normalize(intensity_map), axis=2) * 255
+    # intensity_map = intensity_map.astype(np.uint8)
+    intensity_img_path = os.path.join(
+        config.misc.intensity_base_path, config.misc.intensity_map_type, f"{imname}.png"
+    )
+    intensity_map = cv2.imread(intensity_img_path, cv2.IMREAD_UNCHANGED)
+
+    a, b, c, d = getPlane(ISD_vec, lit_shadow_pts[0])
+    projected_3D_pts = get3DpointsOnPlane(log_img.reshape(-1, 3), a, b, c, d)
+    chromaticity = projected_3D_pts.reshape(log_img.shape).astype(np.uint8)
+
+    reproj_color_img = combineChromaAndIntensity(chromaticity, intensity_map)
+    # cv2.imshow("color_reproj", np.hstack([reproj_color_img]))
+    # cv2.waitKey(0)
+    # cv2.destroyAllWindows()
+    return reproj_color_img
