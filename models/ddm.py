@@ -247,8 +247,8 @@ class DenoisingDiffusion(object):
                 data_start = time.time()
 
             if epoch % self.save_every == 0:
-                self.model.eval()
-                self.sample_validation_patches(val_loader, self.step)
+                # self.model.eval()
+                # self.sample_validation_patches(val_loader, self.step)
 
                 save_path = os.path.join(
                     self.exp_log_dir,
