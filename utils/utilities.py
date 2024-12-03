@@ -302,6 +302,7 @@ def fetchReprojectedColorImg(log_img, points, imname, config):
     chromaticity = projected_3D_pts.reshape(log_img.shape).astype(np.uint8)
 
     reproj_color_img = combineChromaAndIntensity(chromaticity, intensity_map)
+    reproj_color_img = cv2.cvtColor(reproj_color_img, cv2.COLOR_RGB2BGR)
     # cv2.imshow("color_reproj", np.hstack([reproj_color_img]))
     # cv2.waitKey(0)
     # cv2.destroyAllWindows()
