@@ -58,5 +58,5 @@ misc:
     apply_clahe: True # Apply CLAHE on log gray image
     grid_r: 16
     intensity_base_path: "/home/satviktyagi/Desktop/desk/project/datasets/main_data/intensity_maps/"
-    intensity_map_type: "intensity_maps_ISD"
+    intensity_map_type: "intensity_maps_eval"
 
