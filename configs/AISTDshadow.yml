@@ -57,6 +57,7 @@ misc:
     sampling_timesteps: 25 # "Number of implicit sampling steps for validation image patches"
     apply_clahe: True # Apply CLAHE on log gray image
     grid_r: 16
+    # Path to intensity maps, used only when guidance_type is 5
     intensity_base_path: "/home/satviktyagi/Desktop/desk/project/datasets/main_data/intensity_maps/"
     intensity_map_type: "intensity_maps_eval"
 
