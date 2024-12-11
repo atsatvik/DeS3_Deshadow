@@ -1,7 +1,7 @@
 This is a refactored version of Des3_DeShadow. Original Link: https://github.com/jinyeying/DeS3_Deshadow
 
 ### Train 
-To train the Diffusion transformer model, use the following command. You can customize training parameters by modifying the file `configs/AISTDshadow.yml`.
+Use the following command to train the Diffusion transformer model. You can customize training parameters by modifying the file `configs/AISTDshadow.yml`.
 
 **Run the command:**
 ```bash
