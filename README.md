@@ -17,7 +17,7 @@ CUDA_VISIBLE_DEVICES=0 python inference.py --resume path/to/checkpoint
 ```
 
 ### Estimate Stats 
-Use the following command to estimate evaluation metrics like SSIM, MSE, and PSNR. Change the _save_dir_ to location where you wish to save images. Set _path_ that contains predicted and GT images. Follow the folder structure mentioned in the code.
+Use the following command to estimate evaluation metrics like SSIM, MSE, and PSNR. Change the _save_dir_ to location where you wish to save the stats. Set _path_ that contains predicted and GT images. Follow the folder structure mentioned in the code.
 
 **Run the command:**
 ```bash
